@@ -64,3 +64,40 @@ impl Radar {
         dist <= (d_radar + d_target)
     }
 }
+
+/// System to spawn a visual marker at the radar position
+pub fn setup_radar_marker(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    radar: Res<Radar>,
+) {
+    if !radar.enabled {
+        return;
+    }
+
+    // Convert Geo to World Coords
+    // X = Lon * TileSize
+    // Z = -Lat * TileSize
+    // Y = Alt * HeightScale
+    
+    let tile_size = 3601.0;
+    // Hardcoded height scale from mesh_builder (0.25)
+    // ideally this should come from a resource, but for now matching the builder.
+    let height_scale = 0.25; 
+    
+    let x = radar.position.y as f32 * tile_size;
+    let z = -(radar.position.x as f32) * tile_size; // Lat is negative Z
+    let y = radar.position.z as f32 * height_scale;
+
+    commands.spawn((
+        Mesh3d(meshes.add(Sphere::new(500.0))), // Significant size to be seen
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgb(0.0, 1.0, 1.0), // Cyan
+            emissive: LinearRgba::rgb(0.0, 5.0, 5.0), // Bright glow
+            unlit: true,
+            ..default()
+        })),
+        Transform::from_xyz(x, y + 500.0, z), // Lift slightly
+    ));
+}

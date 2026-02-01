@@ -31,6 +31,7 @@ fn main() {
         .add_systems(Startup, (
             setup_scene,
             camera::setup_camera,
+            radar::setup_radar_marker,
         ))
         // Update systems (split into groups to avoid tuple size limit)
         .add_systems(Update, (
