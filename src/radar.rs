@@ -59,7 +59,7 @@ impl Radar {
     }
 
     /// Calculate visibility with terrain occlusion (Raycasting)
-    /// Optimized for performance: Step size increases with distance, early exit.
+    /// Optimized for performance: Cached TileData access to avoid hash lookups per step.
     pub fn is_visible_raycast(&self, target_lat: f64, target_lon: f64, target_alt: f32, cache: &crate::cache::TileCache) -> bool {
         if !self.enabled {
             return false;
@@ -82,9 +82,10 @@ impl Radar {
         // Calculate total distance
         let d_lat = (target_lat - start_lat).to_radians();
         let d_lon = (target_lon - start_lon).to_radians();
+        
+        // Haversine calc
         let lat1 = start_lat.to_radians();
         let lat2 = target_lat.to_radians();
-
         let a = (d_lat / 2.0).sin().powi(2)
             + lat1.cos() * lat2.cos() * (d_lon / 2.0).sin().powi(2);
         let c = 2.0 * a.sqrt().asin();
@@ -95,19 +96,18 @@ impl Radar {
         }
         
         // Raymarch parameters
-        // Optimize: Use fewer steps for short distances, more for long?
-        // Or fixed step size?
-        // Let's use a fixed number of steps for consistency, but variable based on dist.
-        // Step size ~ 1km? Terrain is 90m. 1km might miss peaks.
-        // Let's use 500m steps.
         let step_size = 500.0; 
         let num_steps = (total_dist / step_size).ceil() as usize;
-        let num_steps = num_steps.max(5).min(200); // Clamp to avoid excessive checks (max 200 checks)
+        let num_steps = num_steps.max(5).min(200); 
         
+        // Access Optimization: Cache the current tile data locally to avoid Hash lookups
+        use crate::tile::{TileCoord, TileState};
+        let mut current_tile_coord: Option<TileCoord> = None;
+        let mut current_tile_data: Option<&crate::tile::TileData> = None;
+
         for i in 1..num_steps {
             let t = i as f64 / num_steps as f64;
             
-            // Linear interp for lat/lon (approximation ok for LOS)
             let cur_lat = start_lat + (target_lat - start_lat) * t;
             let cur_lon = start_lon + (target_lon - start_lon) * t;
             
@@ -117,14 +117,37 @@ impl Radar {
             let earth_curvature_drop = (dist_from_start * (total_dist - dist_from_start)) / (2.0 * R_EFF);
             let ray_h = linear_h - earth_curvature_drop;
             
-            // Check terrain
-            // Optimization: If ray_h is very high (e.g. > 5000m), skip check? 
-            // Most terrain in Europe < 4800m.
             if ray_h > 5000.0 {
                 continue;
             }
 
-            if let Some(terrain_h) = cache.get_height_global(cur_lat, cur_lon) {
+            // Optimized Tile Lookup
+            let coord = TileCoord::from_world_coords(cur_lat, cur_lon);
+            
+            // Update local cache if entered new tile
+            if current_tile_coord != Some(coord) {
+                 current_tile_coord = Some(coord);
+                 if let Some(TileState::Loaded(data)) = cache.tiles.get(&coord) {
+                     current_tile_data = Some(data);
+                 } else {
+                     current_tile_data = None;
+                 }
+            }
+
+            // Check terrain if data available
+            if let Some(data) = current_tile_data {
+                // Inline logic from get_height_global to use direct reference
+                let lat_base = coord.lat as f64;
+                let lon_base = coord.lon as f64;
+                
+                let d_lat = cur_lat - lat_base;
+                let d_lon = cur_lon - lon_base;
+                
+                let ny = (1.0 - d_lat) as f32; // Inverted Y for SRTM
+                let nx = d_lon as f32;
+                
+                let terrain_h = data.get_height_normalized(nx, ny);
+                
                 if (terrain_h as f64) > ray_h {
                     return false; // Occluded
                 }
