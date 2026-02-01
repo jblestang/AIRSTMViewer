@@ -93,12 +93,18 @@ pub fn mesh_update_system(
     mut materials: ResMut<Assets<StandardMaterial>>,
     tile_query: Query<(Entity, &TerrainTile)>,
     regen_query: Query<Entity, With<NeedsRegen>>,
-    radar: Res<crate::radar::Radar>, // Add Radar resource
+    radar: Res<crate::radar::Radar>,
 ) {
-    // Check if LOD sorted changed... (omitted lines)
+    // Check if LOD changed - if so, mark all tiles for regeneration
+    if lod_manager.is_changed() {
+        for (entity, _) in tile_query.iter() {
+            commands.entity(entity).insert(NeedsRegen);
+        }
+    }
 
     // Create meshes for newly loaded tiles
     for (coord, tile_data) in cache.loaded_tiles() {
+        // Check if entity already exists
         let exists = tile_query.iter().any(|(_, tile)| tile.coord == coord);
         
         if !exists {
@@ -108,7 +114,8 @@ pub fn mesh_update_system(
                 &mut materials,
                 &colormap,
                 &lod_manager,
-                Some(&radar), // Pass radar
+                Some(&radar),
+                Some(&cache), // Pass cache
                 coord,
                 Some(tile_data),
             );
@@ -127,15 +134,21 @@ pub fn mesh_update_system(
                     &mut materials,
                     &colormap,
                     &lod_manager,
-                    None, // No radar needed for missing mesh (or could pass it)
+                    None,
+                    None,
                     *coord,
                     None,
                 );
             }
         }
     }
-    
-    // ...
+
+    // Regenerate meshes for tiles marked for regeneration
+    for entity in regen_query.iter() {
+        // For now, just remove the marker
+        // In a full implementation, you'd regenerate the mesh
+        commands.entity(entity).remove::<NeedsRegen>();
+    }
 }
 
 /// Spawn a tile entity with mesh
@@ -146,13 +159,14 @@ fn spawn_tile_entity(
     colormap: &ColorMap,
     lod_manager: &LodManager,
     radar: Option<&crate::radar::Radar>,
+    cache: Option<&TileCache>,
     coord: TileCoord,
     tile_data: Option<&crate::tile::TileData>,
 ) {
     let builder = TerrainMeshBuilder::new(lod_manager.current_level);
     
     let mesh = if let Some(data) = tile_data {
-        builder.build_mesh(data, colormap, radar)
+        builder.build_mesh(data, colormap, radar, cache)
     } else {
         builder.build_missing_mesh()
     };

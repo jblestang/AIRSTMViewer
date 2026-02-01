@@ -63,6 +63,75 @@ impl Radar {
 
         dist <= (d_radar + d_target)
     }
+
+    /// Calculate visibility with terrain occlusion (Raycasting)
+    pub fn is_visible_raycast(&self, target_lat: f64, target_lon: f64, target_alt: f32, cache: &crate::cache::TileCache) -> bool {
+        if !self.enabled {
+            return false;
+        }
+
+        // 1. First check simple 4/3 Earth Horizon (optimization)
+        if !self.is_visible(target_lat, target_lon, target_alt) {
+            return false;
+        }
+
+        // 2. Perform Raymarching
+        // Earth Constants
+        const R_EARTH: f64 = 6_371_000.0;
+        const R_EFF: f64 = R_EARTH * (4.0/3.0);
+        
+        let start_lat = self.position.x;
+        let start_lon = self.position.y;
+        let start_alt = self.position.z; // Radar Alt
+
+        // Calculate distance to target
+        let d_lat = (target_lat - start_lat).to_radians();
+        let d_lon = (target_lon - start_lon).to_radians();
+        let lat1 = start_lat.to_radians();
+        let lat2 = target_lat.to_radians();
+
+        let a = (d_lat / 2.0).sin().powi(2)
+            + lat1.cos() * lat2.cos() * (d_lon / 2.0).sin().powi(2);
+        let c = 2.0 * a.sqrt().asin();
+        let total_dist = R_EARTH * c;
+        
+        // Raymarch parameters
+        let num_steps = 50; // Performance tuning needed?
+        let step_dist = total_dist / num_steps as f64;
+        
+        if total_dist < 100.0 {
+            return true; // Too close to occlude
+        }
+
+        for i in 1..num_steps {
+            let t = i as f64 / num_steps as f64; // Normalized distance (0..1)
+            
+            // Current position along the great circle path
+            // Linear interpolation of lat/lon is approximation but okay for short ranges (<400km)
+            let cur_lat = start_lat + (target_lat - start_lat) * t;
+            let cur_lon = start_lon + (target_lon - start_lon) * t;
+            
+            // Calculate height of the Line of Sight (Ray) at this point
+            // Height of straight line connecting A and B over spherical earth:
+            // h_ray(d) approx linear_interp(hA, hB) - d*(D-d)/(2*R_eff).
+            
+            let dist_from_start = total_dist * t;
+            let linear_h = start_alt + (target_alt as f64 - start_alt) * t;
+            let earth_curvature_drop = (dist_from_start * (total_dist - dist_from_start)) / (2.0 * R_EFF);
+            
+            // So the Ray Height (Above Sea Level) is:
+            let ray_h = linear_h - earth_curvature_drop;
+            
+            // If the Terrain Height at this point is HIGHER than the Ray, it's blocked.
+            if let Some(terrain_h) = cache.get_height_global(cur_lat, cur_lon) {
+                if (terrain_h as f64) > ray_h {
+                    return false; // Occluded
+                }
+            }
+        }
+        
+        true
+    }
 }
 
 /// System to spawn a visual marker at the radar position

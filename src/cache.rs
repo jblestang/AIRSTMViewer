@@ -147,6 +147,41 @@ impl TileCache {
             .collect()
     }
 
+    /// Get height at any global coordinate (lat/lon)
+    /// Returns None if tile is not loaded or out of bounds
+    pub fn get_height_global(&self, lat: f64, lon: f64) -> Option<f32> {
+        let coord = TileCoord::from_world_coords(lat, lon);
+        
+        if let Some(TileState::Loaded(data)) = self.tiles.get(&coord) {
+            // Calculate normalized position within tile
+            // Tile origin (lat, lon) is lower-left (South-West) usually?
+            // Wait, TileCoord::from_world_coords flan down.
+            // Example: Lat 43.5 -> Tile 43. 
+            // Offset = 0.5.
+            
+            // Standard SRTM: 
+            // Rows 0..3600 (North to South).
+            // Cols 0..3600 (West to East).
+            
+            // Local lat offset from top: (lat_base + 1) - lat
+            let lat_base = coord.lat as f64;
+            let lon_base = coord.lon as f64;
+            
+            let d_lat = lat - lat_base; // 0.0 to 1.0 (South to North)
+            let d_lon = lon - lon_base; // 0.0 to 1.0 (West to East)
+            
+            // SRTM Image Y: 0 is North. 1.0 is South.
+            // So ny = 1.0 - d_lat
+            let ny = 1.0 - d_lat;
+            let nx = d_lon;
+            
+            if nx >= 0.0 && nx <= 1.0 && ny >= 0.0 && ny <= 1.0 {
+                return Some(data.get_height_normalized(nx as f32, ny as f32));
+            }
+        }
+        None
+    }
+
     /// Clear all tiles from memory (keeps disk cache)
     pub fn clear_memory(&mut self) {
         self.tiles.clear();

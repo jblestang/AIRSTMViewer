@@ -31,7 +31,7 @@ impl TerrainMeshBuilder {
     }
 
     /// Build a mesh from tile data using triangles
-    pub fn build_mesh(&self, tile: &TileData, colormap: &ColorMap, radar: Option<&crate::radar::Radar>) -> Mesh {
+    pub fn build_mesh(&self, tile: &TileData, colormap: &ColorMap, radar: Option<&crate::radar::Radar>, cache: Option<&crate::cache::TileCache>) -> Mesh {
         let step = self.lod_level;
         let size = tile.size;
         
@@ -84,7 +84,13 @@ impl TerrainMeshBuilder {
                     let v_lat = (tile_lat_base + 1.0) - (y as f64 / max_coord as f64);
                     let v_lon = tile_lon_base + (x as f64 / max_coord as f64);
                     
-                    if r.is_visible(v_lat, v_lon, height as f32) {
+                    let visible = if let Some(c) = cache {
+                        r.is_visible_raycast(v_lat, v_lon, height as f32, c)
+                    } else {
+                        r.is_visible(v_lat, v_lon, height as f32)
+                    };
+
+                    if visible {
                         // Green for visible
                         color = Color::srgb(0.0, 1.0, 0.0).into();
                     } else {
