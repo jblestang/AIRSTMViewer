@@ -1,0 +1,17 @@
+/target
+Cargo.lock
+
+# SRTM data
+*.hgt
+assets/
+src/assets/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
