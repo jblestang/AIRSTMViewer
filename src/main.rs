@@ -33,15 +33,18 @@ fn main() {
             camera::setup_camera,
             radar::setup_radar_marker,
         ))
-        // Update systems (split into groups to avoid tuple size limit)
+        // Update systems
+        // Update systems
         .add_systems(Update, (
             camera::camera_flight_system,
             lod::update_lod_system,
             systems::tile_loader_system,
+            systems::mesh_update_system,
+            radar::update_radar_viewshed, 
         ))
         .add_systems(Update, (
             downloader::process_downloads,
-            systems::mesh_update_system,
+            // mesh_update_system is already above
         ))
         .run();
 }

@@ -52,55 +52,70 @@ impl TerrainMeshBuilder {
         let tile_lat_base = tile.coord.lat as f64;
         let tile_lon_base = tile.coord.lon as f64;
         
-        for y in (0..=max_coord).step_by(step) {
-            for x in (0..=max_coord).step_by(step) {
-                let height = tile.get_height(x, y).unwrap_or(0) as f32;
+        // Generate vertices in parallel using Rayon
+        use rayon::prelude::*;
+        
+        // Use count-based iteration to avoid step_by issues with Rayon
+        let vertices: Vec<( [f32; 3], [f32; 4] )> = (0..vertices_per_row)
+            .into_par_iter()
+            .flat_map(|yi| {
+                let y = yi * step;
                 
-                // Position vertices to span the full tile width (0 to 3601)
-                let px = (x as f32 / max_coord as f32) * (size as f32) * self.scale;
-                let py = height * self.height_scale;
-                let pz = (y as f32 / max_coord as f32) * (size as f32) * self.scale;
+                let tile_lat_base = tile_lat_base;
+                let tile_lon_base = tile_lon_base;
+                let size = size;
+                let scale = self.scale;
+                let height_scale = self.height_scale;
                 
-                positions.push([px, py, pz]);
-                
-                // Determine color
-                let mut color = colormap.get_color(height).to_srgba();
-                
-                // Overlay Radar Visibility
-                if let Some(r) = radar {
-                    // Calculate geographic position of vertex
-                    // Lat increases with Y? NO.
-                    // Filenames: "Nxx". 
-                    // Y=0 is North edge? Or South?
-                    // Standard SRTM: Row 0 is North. Row 3600 is South.
-                    // My previous analysis: "N43" means 43 to 44.
-                    // And I map Z = -(lat+1)*size + local_z.
-                    // local_z goes 0..size.
-                    // If row 0 is North, then row 0 corresponds to lat+1.
-                    // If row 3600 is South, corresponds to lat.
-                    // Let's assume standard SRTM: Row 0 = North Limit (e.g. 44). Row 3600 = South Limit (43).
-                    // So vertex_lat = (lat + 1) - (y / 3600).
+                (0..vertices_per_row).into_par_iter().map(move |xi| {
+                    let x = xi * step;
                     
-                    let v_lat = (tile_lat_base + 1.0) - (y as f64 / max_coord as f64);
-                    let v_lon = tile_lon_base + (x as f64 / max_coord as f64);
+                    let height = tile.get_height(x, y).unwrap_or(0) as f32;
                     
-                    let visible = if let Some(c) = cache {
-                        r.is_visible_raycast(v_lat, v_lon, height as f32, c)
-                    } else {
-                        r.is_visible(v_lat, v_lon, height as f32)
-                    };
+                    // Position
+                    let px = (x as f32 / max_coord as f32) * (size as f32) * scale;
+                    let py = height * height_scale;
+                    let pz = (y as f32 / max_coord as f32) * (size as f32) * scale;
+                    
+                    let position = [px, py, pz];
+                    
+                    // Determine color
+                    // Note: This logic must match the previous sequential logic exactly
+                    
+                    let mut final_color_rgba = [1.0, 1.0, 1.0, 1.0];
+                    
+                    if let Some(r) = radar {
+                        let v_lat = (tile_lat_base + 1.0) - (y as f64 / max_coord as f64);
+                        let v_lon = tile_lon_base + (x as f64 / max_coord as f64);
+                        
+                        let visible = if let Some(c) = cache {
+                            r.is_visible_raycast(v_lat, v_lon, height as f32, c)
+                        } else {
+                            r.is_visible(v_lat, v_lon, height as f32)
+                        };
 
-                    if visible {
-                        // Green for visible
-                        color = Srgba::new(0.0, 1.0, 0.0, 0.3);
+                        if visible {
+                            // Green for visible
+                            final_color_rgba = [0.0, 1.0, 0.0, 0.3];
+                        } else {
+                            // Red for hidden
+                            final_color_rgba = [1.0, 0.0, 0.0, 0.3];
+                        }
                     } else {
-                        // Red for hidden
-                        color = Srgba::new(1.0, 0.0, 0.0, 0.3);
+                        // Fallback to colormap if no radar
+                        let mut c = colormap.get_color(height).to_srgba();
+                        final_color_rgba = [c.red, c.green, c.blue, c.alpha];
                     }
-                }
-                
-                colors.push([color.red, color.green, color.blue, color.alpha]);
-            }
+                    
+                    (position, final_color_rgba)
+                })
+            })
+            .collect();
+
+        // Populate the buffers
+        for (pos, col) in vertices {
+            positions.push(pos);
+            colors.push(col);
         }
         
         // Generate wireframe indices (optimized: min lines)
