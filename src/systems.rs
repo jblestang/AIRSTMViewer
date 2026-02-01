@@ -175,9 +175,7 @@ fn spawn_tile_entity(
     let x_offset = coord.lon as f32 * tile_size;
     let z_offset = -((coord.lat + 1) as f32) * tile_size;
     
-    // Calculate center position for the label
-    let center_x = x_offset + tile_size / 2.0;
-    let center_z = z_offset + tile_size / 2.0;
+
 
     commands.spawn((
         Mesh3d(meshes.add(mesh)),
@@ -193,31 +191,7 @@ fn spawn_tile_entity(
     ));
     
     
-    // Add a tall red marker cube at the center of each tile for identification
-    // Text2d doesn't render reliably in 3D space, so using a visible 3D marker instead
-    commands.spawn((
-        Mesh3d(meshes.add(Cuboid::new(200.0, 800.0, 200.0))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(1.0, 0.0, 0.0),
-            emissive: LinearRgba::rgb(3.0, 0.0, 0.0), // Bright red glow
-            unlit: true, // Always visible, not affected by lighting
-            ..default()
-        })),
-        Transform::from_xyz(center_x, 400.0, center_z), // Tall marker
-        TerrainTile { coord },
-    ));
-    
-    // Add text label above the marker showing tile name
-    commands.spawn((
-        Text2d::new(coord.filename().replace(".hgt", "")),
-        TextFont {
-            font_size: 300.0,
-            ..default()
-        },
-        TextColor(Color::srgb(1.0, 1.0, 1.0)), // White text for visibility
-        Transform::from_xyz(center_x, 900.0, center_z), // Above the red marker
-        TerrainTile { coord },
-    ));
+
 
     info!("Spawned tile entity: {:?}", coord);
 }

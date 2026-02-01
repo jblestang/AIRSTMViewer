@@ -50,26 +50,51 @@ pub fn camera_flight_system(
         mouse_motion.clear();
     }
 
+    // Check for modifier keys (Command/Super)
+    let super_pressed = keys.pressed(KeyCode::SuperLeft) || keys.pressed(KeyCode::SuperRight);
+
+    // Keyboard rotation (Command + Arrows)
+    let mut rotation_delta = Vec2::ZERO;
+    if super_pressed {
+        if keys.pressed(KeyCode::ArrowLeft) { rotation_delta.x += 1.0; }
+        if keys.pressed(KeyCode::ArrowRight) { rotation_delta.x -= 1.0; }
+        if keys.pressed(KeyCode::ArrowUp) { rotation_delta.y += 1.0; }
+        if keys.pressed(KeyCode::ArrowDown) { rotation_delta.y -= 1.0; }
+        
+        if rotation_delta != Vec2::ZERO {
+            // Apply rotation with same speed as mouse
+            let yaw = Quat::from_rotation_y(rotation_delta.x * camera.rotate_speed * 10.0); // Multiplier for keys
+            let pitch = Quat::from_rotation_x(rotation_delta.y * camera.rotate_speed * 10.0);
+            transform.rotation = yaw * transform.rotation * pitch;
+        }
+    }
+
     // WASD / Arrow keys for movement
     let mut direction = Vec3::ZERO;
     
-    if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) {
+    // W / ArrowUp (only if not rotating)
+    if keys.pressed(KeyCode::KeyW) || (!super_pressed && keys.pressed(KeyCode::ArrowUp)) {
         direction += transform.forward().as_vec3();
     }
-    if keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown) {
+    // S / ArrowDown
+    if keys.pressed(KeyCode::KeyS) || (!super_pressed && keys.pressed(KeyCode::ArrowDown)) {
         direction -= transform.forward().as_vec3();
     }
-    if keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft) {
+    // A / ArrowLeft
+    if keys.pressed(KeyCode::KeyA) || (!super_pressed && keys.pressed(KeyCode::ArrowLeft)) {
         direction -= transform.right().as_vec3();
     }
-    if keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight) {
+    // D / ArrowRight
+    if keys.pressed(KeyCode::KeyD) || (!super_pressed && keys.pressed(KeyCode::ArrowRight)) {
         direction += transform.right().as_vec3();
     }
     
     // Q/E or Shift/Space for vertical movement
+    // Q/Shift = Up (Ascend)
     if keys.pressed(KeyCode::KeyQ) || keys.pressed(KeyCode::ShiftLeft) {
         direction.y += 1.0;
     }
+    // E/Space = Down (Descend)
     if keys.pressed(KeyCode::KeyE) || keys.pressed(KeyCode::Space) {
         direction.y -= 1.0;
     }
@@ -77,10 +102,15 @@ pub fn camera_flight_system(
     // Normalize and apply movement
     if direction.length_squared() > 0.0 {
         direction = direction.normalize();
+        
+        // Boost speed with Shift (if not rotating/using shift for up)
+        // Actually Shift is used for UP. Ctrl for speed? 
+        // Let's stick to base speed for now.
+        
         transform.translation += direction * camera.move_speed * dt;
     }
     
-    // Mouse wheel zoom (move forward/backward)
+    // Mouse wheel zoom (move forward/backward) along view vector
     for event in scroll_events.read() {
         let forward = transform.forward().as_vec3();
         transform.translation += forward * event.y * camera.zoom_speed;

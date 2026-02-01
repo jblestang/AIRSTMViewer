@@ -16,7 +16,7 @@ impl Default for TerrainMeshBuilder {
         Self {
             lod_level: 1,
             scale: 1.0,
-            height_scale: 0.001, // Convert meters to reasonable world units
+            height_scale: 0.25, // Exaggerate height for better visibility (0.25 as per user request)
         }
     }
 }
@@ -47,18 +47,23 @@ impl TerrainMeshBuilder {
         // IMPORTANT: SRTM tiles overlap at edges - the last row/column of one tile
         // is the same as the first row/column of the next tile.
         // We skip the last row and column to avoid duplication and ensure seamless edges.
+        // Generate vertices
+        // IMPORTANT: Use inclusive range step to ensure we hit the last edge if divisible
+        // For LOD levels that divide 3600 (1, 2, 4, 8, 16), this works perfectly.
         let max_coord = size - 1;
         
-        for y in (0..max_coord).step_by(step) {
-            for x in (0..max_coord).step_by(step) {
+        // We need to generate vertices up to max_coord inclusive
+        // The vertex count in each dimension
+        let vertices_per_row = max_coord / step + 1;
+        
+        for y in (0..=max_coord).step_by(step) {
+            for x in (0..=max_coord).step_by(step) {
                 let height = tile.get_height(x, y).unwrap_or(0) as f32;
                 
                 // Position vertices to span the full tile width (0 to 3601)
-                // Even though we skip the last row/column of vertices,
-                // we scale positions so the mesh spans the full tile
-                let px = (x as f32 / (max_coord - 1) as f32) * (size as f32) * self.scale;
+                let px = (x as f32 / max_coord as f32) * (size as f32) * self.scale;
                 let py = height * self.height_scale;
-                let pz = (y as f32 / (max_coord - 1) as f32) * (size as f32) * self.scale;
+                let pz = (y as f32 / max_coord as f32) * (size as f32) * self.scale;
                 
                 positions.push([px, py, pz]);
                 
@@ -69,32 +74,42 @@ impl TerrainMeshBuilder {
             }
         }
         
-        // Generate triangle indices
-        // Each grid cell creates 2 triangles
-        for y in 0..(grid_size - 1) {
-            for x in 0..(grid_size - 1) {
-                let i0 = y * grid_size + x;
+        // Generate wireframe indices (optimized: min lines)
+        // Grid size is number of cells
+        let cell_cols = vertices_per_row - 1;
+        let cell_rows = vertices_per_row - 1;
+        
+        for y in 0..cell_rows {
+            for x in 0..cell_cols {
+                let i0 = y * vertices_per_row + x;
                 let i1 = i0 + 1;
-                let i2 = i0 + grid_size;
-                let i3 = i2 + 1;
+                let i2 = i0 + vertices_per_row;
+                // let i3 = i2 + 1; 
                 
-                // Triangle 1
-                indices.push(i0 as u32);
-                indices.push(i2 as u32);
-                indices.push(i1 as u32);
+                // Optimized Wireframe: Top, Left, Diagonal
+                indices.push(i0 as u32); indices.push(i1 as u32); // Top (i0-i1)
+                indices.push(i0 as u32); indices.push(i2 as u32); // Left (i0-i2)
+                indices.push(i1 as u32); indices.push(i2 as u32); // Diagonal (i1-i2)
                 
-                // Triangle 2
-                indices.push(i1 as u32);
-                indices.push(i2 as u32);
-                indices.push(i3 as u32);
+                // If last column, draw Right edge
+                if x == cell_cols - 1 {
+                    let i3 = i2 + 1;
+                     indices.push(i1 as u32); indices.push(i3 as u32); // Right (i1-i3)
+                }
+                
+                // If last row, draw Bottom edge
+                if y == cell_rows - 1 {
+                    let i3 = i2 + 1;
+                     indices.push(i2 as u32); indices.push(i3 as u32); // Bottom (i2-i3)
+                }
             }
         }
         
-        // Calculate normals
-        let normals = self.calculate_normals(&positions, &indices);
+        // Dummy normals for wireframe (Unlit material doesn't use them, but shader expects attribute)
+        let normals = vec![[0.0, 1.0, 0.0]; positions.len()];
         
-        // Build mesh
-        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, Default::default());
+        // Build mesh as LineList for wireframe
+        let mut mesh = Mesh::new(PrimitiveTopology::LineList, Default::default());
         mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
         mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
         mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
@@ -126,27 +141,35 @@ impl TerrainMeshBuilder {
             }
         }
         
-        // Generate triangles
-        for y in 0..(grid_size - 1) {
-            for x in 0..(grid_size - 1) {
-                let i0 = y * grid_size + x;
+        // Generate wireframe indices for missing tile
+        let grid_w = size / step; // Number of cells
+        
+        for y in 0..grid_w {
+            for x in 0..grid_w {
+                let i0 = y * (grid_w + 1) + x;
                 let i1 = i0 + 1;
-                let i2 = i0 + grid_size;
-                let i3 = i2 + 1;
+                let i2 = i0 + (grid_w + 1);
                 
-                indices.push(i0 as u32);
-                indices.push(i2 as u32);
-                indices.push(i1 as u32);
+                // Wireframe lines
+                indices.push(i0 as u32); indices.push(i1 as u32); // Top
+                indices.push(i0 as u32); indices.push(i2 as u32); // Left
+                indices.push(i1 as u32); indices.push(i2 as u32); // Diagonal
                 
-                indices.push(i1 as u32);
-                indices.push(i2 as u32);
-                indices.push(i3 as u32);
+                // Right and Bottom edges
+                if x == grid_w - 1 {
+                    let i3 = i2 + 1;
+                    indices.push(i1 as u32); indices.push(i3 as u32);
+                }
+                if y == grid_w - 1 {
+                    let i3 = i2 + 1;
+                    indices.push(i2 as u32); indices.push(i3 as u32);
+                }
             }
         }
         
-        let normals = self.calculate_normals(&positions, &indices);
+        let normals = vec![[0.0, 1.0, 0.0]; positions.len()];
         
-        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, Default::default());
+        let mut mesh = Mesh::new(PrimitiveTopology::LineList, Default::default());
         mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
         mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
         mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
