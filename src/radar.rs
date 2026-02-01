@@ -1,0 +1,66 @@
+use bevy::prelude::*;
+use bevy::math::DVec3;
+
+/// Radar configuration resource
+#[derive(Resource, Clone, Debug)]
+pub struct Radar {
+    pub position: DVec3, // Lat (deg), Lon (deg), Alt (meters)
+    pub enabled: bool,
+    pub max_range: f32, // Max range in meters
+}
+
+impl Default for Radar {
+    fn default() -> Self {
+        Self {
+            // Mont Agel coordinates
+            position: DVec3::new(43.7686, 7.4217, 1148.0), 
+            enabled: true,
+            max_range: 400_000.0, // 400 km range
+        }
+    }
+}
+
+impl Radar {
+    /// Calculate if a target point is within Radio Line of Sight (LOS)
+    /// Uses 4/3 Earth Radius approximation
+    pub fn is_visible(&self, target_lat: f64, target_lon: f64, target_alt: f32) -> bool {
+        if !self.enabled {
+            return false;
+        }
+
+        // Earth constants
+        const R_EARTH: f64 = 6_371_000.0; // Meters
+        const K_FACTOR: f64 = 4.0 / 3.0;
+        const R_EFF: f64 = R_EARTH * K_FACTOR; // Effective radius (~8494 km)
+
+        // Calculate Great Circle Distance (Haversine or simple spherical)
+        // Since range is small compared to Earth, flat approximation or spherical is fine.
+        // Let's use Haversine for accuracy.
+        let d_lat = (target_lat - self.position.x).to_radians();
+        let d_lon = (target_lon - self.position.y).to_radians();
+        let lat1 = self.position.x.to_radians();
+        let lat2 = target_lat.to_radians();
+
+        let a = (d_lat / 2.0).sin().powi(2)
+            + lat1.cos() * lat2.cos() * (d_lon / 2.0).sin().powi(2);
+        let c = 2.0 * a.sqrt().asin();
+        let dist = R_EARTH * c; // Surface distance
+
+        if dist > self.max_range as f64 {
+            return false;
+        }
+
+        // Radio Horizon formula:
+        // D_horizon = sqrt(2 * h * R_eff)
+        // Max LOS distance = D_horizon_radar + D_horizon_target
+        // If actual distance < Max LOS, then it's visible (ignoring obstacles)
+        
+        let h_radar = self.position.z.max(0.0);
+        let h_target = target_alt.max(0.0) as f64;
+
+        let d_radar = (2.0 * h_radar * R_EFF).sqrt();
+        let d_target = (2.0 * h_target * R_EFF).sqrt();
+
+        dist <= (d_radar + d_target)
+    }
+}

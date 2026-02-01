@@ -122,11 +122,10 @@ pub fn camera_flight_system(
 
 /// Setup camera
 pub fn setup_camera(mut commands: Commands) {
-    // Center on France/Italy region (N41E002 area)
-    // North = -Z
+    // Center on Mont Agel (N43.76 E7.42)
     let tile_size = 3601.0;
-    let center_x = 2.0 * tile_size;  // Longitude 2°E
-    let center_z = -42.0 * tile_size; // Latitude 41°N (approx center of tile N41 is at -(41+1) offset + half size? No let's aim for 42N so -42)
+    let center_x = 7.4217 * tile_size;  // Longitude 7.42E
+    let center_z = -43.7686 * tile_size; // Latitude 43.76N
     
     // Position camera SOUTH of target (More Positive Z), looking NORTH (Negative Z)
     commands.spawn((

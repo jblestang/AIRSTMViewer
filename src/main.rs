@@ -6,6 +6,7 @@ mod lod;
 mod mesh_builder;
 mod systems;
 mod tile;
+mod radar;
 
 use bevy::prelude::*;
 
@@ -25,6 +26,7 @@ fn main() {
         .init_resource::<colormap::ColorMap>()
         .init_resource::<downloader::TileDownloader>()
         .init_resource::<lod::LodManager>()
+        .init_resource::<radar::Radar>()
         // Startup systems
         .add_systems(Startup, (
             setup_scene,

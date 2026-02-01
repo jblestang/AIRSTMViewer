@@ -31,7 +31,7 @@ impl TerrainMeshBuilder {
     }
 
     /// Build a mesh from tile data using triangles
-    pub fn build_mesh(&self, tile: &TileData, colormap: &ColorMap) -> Mesh {
+    pub fn build_mesh(&self, tile: &TileData, colormap: &ColorMap, radar: Option<&crate::radar::Radar>) -> Mesh {
         let step = self.lod_level;
         let size = tile.size;
         
@@ -39,22 +39,18 @@ impl TerrainMeshBuilder {
         let max_coord = size - 1;
         let grid_size = (max_coord - 1) / step + 1;
         
+        // We need to generate vertices up to max_coord inclusive
+        let vertices_per_row = max_coord / step + 1;
+        
         let mut positions = Vec::new();
         let mut colors = Vec::new();
         let mut indices = Vec::new();
         
-        // Generate vertices
-        // IMPORTANT: SRTM tiles overlap at edges - the last row/column of one tile
-        // is the same as the first row/column of the next tile.
-        // We skip the last row and column to avoid duplication and ensure seamless edges.
-        // Generate vertices
-        // IMPORTANT: Use inclusive range step to ensure we hit the last edge if divisible
-        // For LOD levels that divide 3600 (1, 2, 4, 8, 16), this works perfectly.
-        let max_coord = size - 1;
-        
-        // We need to generate vertices up to max_coord inclusive
-        // The vertex count in each dimension
-        let vertices_per_row = max_coord / step + 1;
+        // Tile origin in World Coordinates (lat/lon)
+        // Tile N43E007 origin is 43N, 7E.
+        // x index 0..3600 maps to 0..1 deg.
+        let tile_lat_base = tile.coord.lat as f64;
+        let tile_lon_base = tile.coord.lon as f64;
         
         for y in (0..=max_coord).step_by(step) {
             for x in (0..=max_coord).step_by(step) {
@@ -67,10 +63,39 @@ impl TerrainMeshBuilder {
                 
                 positions.push([px, py, pz]);
                 
-                // Color based on elevation
-                let color = colormap.get_color(height);
-                let c = color.to_srgba();
-                colors.push([c.red, c.green, c.blue, 1.0]);
+                // Determine color
+                let mut color = colormap.get_color(height).to_srgba();
+                
+                // Overlay Radar Visibility
+                if let Some(r) = radar {
+                    // Calculate geographic position of vertex
+                    // Lat increases with Y? NO.
+                    // Filenames: "Nxx". 
+                    // Y=0 is North edge? Or South?
+                    // Standard SRTM: Row 0 is North. Row 3600 is South.
+                    // My previous analysis: "N43" means 43 to 44.
+                    // And I map Z = -(lat+1)*size + local_z.
+                    // local_z goes 0..size.
+                    // If row 0 is North, then row 0 corresponds to lat+1.
+                    // If row 3600 is South, corresponds to lat.
+                    // Let's assume standard SRTM: Row 0 = North Limit (e.g. 44). Row 3600 = South Limit (43).
+                    // So vertex_lat = (lat + 1) - (y / 3600).
+                    
+                    let v_lat = (tile_lat_base + 1.0) - (y as f64 / max_coord as f64);
+                    let v_lon = tile_lon_base + (x as f64 / max_coord as f64);
+                    
+                    if r.is_visible(v_lat, v_lon, height as f32) {
+                        // Green for visible
+                        color = Color::srgb(0.0, 1.0, 0.0).into();
+                    } else {
+                        // Red for hidden
+                        // color = Color::srgb(1.0, 0.0, 0.0);
+                        // Or Keep original color but dimmed? Or distinct Red?
+                        color = Color::srgb(1.0, 0.0, 0.0).into();
+                    }
+                }
+                
+                colors.push([color.red, color.green, color.blue, 1.0]);
             }
         }
         
