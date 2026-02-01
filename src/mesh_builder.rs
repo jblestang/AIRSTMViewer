@@ -55,60 +55,58 @@ impl TerrainMeshBuilder {
         // Generate vertices in parallel using Rayon
         use rayon::prelude::*;
         
-        // Use count-based iteration to avoid step_by issues with Rayon
-        let vertices: Vec<( [f32; 3], [f32; 4] )> = (0..vertices_per_row)
+        // Generate vertices in parallel using Rayon (Outer loop only to reduce overhead)
+        // We flatten the coordinate space to a single vector of indices to ensure load balancing
+        let total_vertices = vertices_per_row * vertices_per_row;
+        
+        use rayon::prelude::*;
+        
+        let vertices: Vec<( [f32; 3], [f32; 4] )> = (0..total_vertices)
             .into_par_iter()
-            .flat_map(|yi| {
+            .map(|i| {
+                let yi = i / vertices_per_row;
+                let xi = i % vertices_per_row;
+                
                 let y = yi * step;
+                let x = xi * step;
                 
-                let tile_lat_base = tile_lat_base;
-                let tile_lon_base = tile_lon_base;
-                let size = size;
-                let scale = self.scale;
-                let height_scale = self.height_scale;
+                let height = tile.get_height(x, y).unwrap_or(0) as f32;
                 
-                (0..vertices_per_row).into_par_iter().map(move |xi| {
-                    let x = xi * step;
+                // Position
+                let px = (x as f32 / max_coord as f32) * (size as f32) * self.scale;
+                let py = height * self.height_scale;
+                let pz = (y as f32 / max_coord as f32) * (size as f32) * self.scale;
+                
+                let position = [px, py, pz];
+                
+                // Determine color
+                let mut final_color_rgba = [1.0, 1.0, 1.0, 1.0];
+                
+                if let Some(r) = radar {
+                    // Re-calculate lat/lon per vertex
+                    let v_lat = (tile_lat_base + 1.0) - (y as f64 / max_coord as f64);
+                    let v_lon = tile_lon_base + (x as f64 / max_coord as f64);
                     
-                    let height = tile.get_height(x, y).unwrap_or(0) as f32;
-                    
-                    // Position
-                    let px = (x as f32 / max_coord as f32) * (size as f32) * scale;
-                    let py = height * height_scale;
-                    let pz = (y as f32 / max_coord as f32) * (size as f32) * scale;
-                    
-                    let position = [px, py, pz];
-                    
-                    // Determine color
-                    // Note: This logic must match the previous sequential logic exactly
-                    
-                    let mut final_color_rgba = [1.0, 1.0, 1.0, 1.0];
-                    
-                    if let Some(r) = radar {
-                        let v_lat = (tile_lat_base + 1.0) - (y as f64 / max_coord as f64);
-                        let v_lon = tile_lon_base + (x as f64 / max_coord as f64);
-                        
-                        let visible = if let Some(c) = cache {
-                            r.is_visible_raycast(v_lat, v_lon, height as f32, c)
-                        } else {
-                            r.is_visible(v_lat, v_lon, height as f32)
-                        };
-
-                        if visible {
-                            // Green for visible
-                            final_color_rgba = [0.0, 1.0, 0.0, 0.3];
-                        } else {
-                            // Red for hidden
-                            final_color_rgba = [1.0, 0.0, 0.0, 0.3];
-                        }
+                    let visible = if let Some(c) = cache {
+                        r.is_visible_raycast(v_lat, v_lon, height as f32, c)
                     } else {
-                        // Fallback to colormap if no radar
-                        let mut c = colormap.get_color(height).to_srgba();
-                        final_color_rgba = [c.red, c.green, c.blue, c.alpha];
+                        r.is_visible(v_lat, v_lon, height as f32)
+                    };
+
+                    if visible {
+                         // Green for visible
+                        final_color_rgba = [0.0, 1.0, 0.0, 0.3];
+                    } else {
+                        // Red for hidden
+                        final_color_rgba = [1.0, 0.0, 0.0, 0.3];
                     }
-                    
-                    (position, final_color_rgba)
-                })
+                } else {
+                     // Fallback to colormap if no radar
+                    let c = colormap.get_color(height).to_srgba();
+                    final_color_rgba = [c.red, c.green, c.blue, c.alpha];
+                }
+                
+                (position, final_color_rgba)
             })
             .collect();
 

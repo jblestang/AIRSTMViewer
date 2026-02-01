@@ -40,7 +40,6 @@ fn main() {
             lod::update_lod_system,
             systems::tile_loader_system,
             systems::mesh_update_system,
-            radar::update_radar_viewshed, 
         ))
         .add_systems(Update, (
             downloader::process_downloads,
