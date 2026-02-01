@@ -191,6 +191,7 @@ fn spawn_tile_entity(
             perceptual_roughness: 0.8,
             metallic: 0.0,
             cull_mode: None,  // Disable backface culling - normals point inward
+            alpha_mode: AlphaMode::Blend,
             ..default()
         })),
         Transform::from_xyz(x_offset, 0.0, z_offset),

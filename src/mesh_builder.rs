@@ -92,16 +92,14 @@ impl TerrainMeshBuilder {
 
                     if visible {
                         // Green for visible
-                        color = Color::srgb(0.0, 1.0, 0.0).into();
+                        color = Srgba::new(0.0, 1.0, 0.0, 0.3);
                     } else {
                         // Red for hidden
-                        // color = Color::srgb(1.0, 0.0, 0.0);
-                        // Or Keep original color but dimmed? Or distinct Red?
-                        color = Color::srgb(1.0, 0.0, 0.0).into();
+                        color = Srgba::new(1.0, 0.0, 0.0, 0.3);
                     }
                 }
                 
-                colors.push([color.red, color.green, color.blue, 1.0]);
+                colors.push([color.red, color.green, color.blue, color.alpha]);
             }
         }
         
