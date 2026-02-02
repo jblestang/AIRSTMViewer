@@ -50,13 +50,17 @@ impl TileCoord {
     }
 }
 
+use std::sync::Arc;
+
 /// State of a tile in the system
 #[derive(Debug, Clone, PartialEq)]
 pub enum TileState {
     /// Tile is being downloaded
     Loading,
     /// Tile data is loaded and ready
-    Loaded(TileData),
+    Loaded(Arc<TileData>),
+    /// Tile data is loaded and ready (non-Arc version for intermediate?)
+    // Loaded(TileData), 
     /// Tile failed to load (404 or other error)
     Missing,
     /// Error occurred during loading

@@ -60,7 +60,7 @@ impl Radar {
 
     /// Calculate visibility with terrain occlusion (Raycasting)
     /// Optimized for performance: Cached TileData access to avoid hash lookups per step.
-    pub fn is_visible_raycast(&self, target_lat: f64, target_lon: f64, target_alt: f32, cache: &crate::cache::TileCache) -> bool {
+    pub fn is_visible_raycast(&self, target_lat: f64, target_lon: f64, target_alt: f32, cache_snapshot: &std::collections::HashMap<crate::tile::TileCoord, std::sync::Arc<crate::tile::TileData>>) -> bool {
         if !self.enabled {
             return false;
         }
@@ -127,8 +127,9 @@ impl Radar {
             // Update local cache if entered new tile
             if current_tile_coord != Some(coord) {
                  current_tile_coord = Some(coord);
-                 if let Some(TileState::Loaded(data)) = cache.tiles.get(&coord) {
-                     current_tile_data = Some(data);
+                 // cache_snapshot is HashMap<TileCoord, Arc<TileData>>
+                 if let Some(data_arc) = cache_snapshot.get(&coord) {
+                     current_tile_data = Some(data_arc.as_ref());
                  } else {
                      current_tile_data = None;
                  }

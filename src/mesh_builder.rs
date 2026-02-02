@@ -3,6 +3,9 @@ use crate::colormap::ColorMap;
 use crate::tile::TileData;
 use bevy::prelude::*;
 use bevy::render::mesh::{Indices, PrimitiveTopology};
+use std::collections::HashMap;
+use std::sync::Arc;
+use crate::tile::TileCoord;
 
 /// Build a terrain mesh from tile data
 pub struct TerrainMeshBuilder {
@@ -15,8 +18,8 @@ impl Default for TerrainMeshBuilder {
     fn default() -> Self {
         Self {
             lod_level: 1,
-            scale: 1.0,
-            height_scale: 0.25, // Exaggerate height for better visibility (0.25 as per user request)
+            scale: 1.0, 
+            height_scale: 1.0,
         }
     }
 }
@@ -26,12 +29,13 @@ impl TerrainMeshBuilder {
     pub fn new(lod_level: usize) -> Self {
         Self {
             lod_level,
-            ..Default::default()
+            scale: 1.0, 
+            height_scale: 1.0,
         }
     }
 
-    /// Build a mesh from tile data using triangles
-    pub fn build_mesh(&self, tile: &TileData, colormap: &ColorMap, radar: Option<&crate::radar::Radar>, cache: Option<&crate::cache::TileCache>) -> Mesh {
+    /// Build a mesh for a given tile
+    pub fn build_mesh(&self, tile: &TileData, colormap: &ColorMap, radar: Option<&crate::radar::Radar>, cache_snapshot: Option<&HashMap<TileCoord, Arc<TileData>>>) -> Mesh {
         let step = self.lod_level;
         let size = tile.size;
         
@@ -87,7 +91,7 @@ impl TerrainMeshBuilder {
                     let v_lat = (tile_lat_base + 1.0) - (y as f64 / max_coord as f64);
                     let v_lon = tile_lon_base + (x as f64 / max_coord as f64);
                     
-                    let visible = if let Some(c) = cache {
+                    let visible = if let Some(c) = cache_snapshot {
                         r.is_visible_raycast(v_lat, v_lon, height as f32, c)
                     } else {
                         r.is_visible(v_lat, v_lon, height as f32)

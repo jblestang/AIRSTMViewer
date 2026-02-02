@@ -55,6 +55,11 @@ impl TileCache {
     pub fn insert_tile(&mut self, coord: TileCoord, state: TileState) {
         self.tiles.insert(coord, state);
     }
+    
+    /// Insert loaded tile data (helper)
+    pub fn insert_data(&mut self, coord: TileCoord, data: TileData) {
+        self.tiles.insert(coord, TileState::Loaded(std::sync::Arc::new(data)));
+    }
 
     /// Mark a tile as loading
     pub fn mark_loading(&mut self, coord: TileCoord) {
@@ -96,7 +101,7 @@ impl TileCache {
         // - Rows are ordered NORTH to SOUTH (first row = northernmost)
         // - Columns are ordered WEST to EAST (first column = westernmost)
         // - Filename indicates the LOWER-LEFT (southwest) corner
-        // In our coordinate system, we need to flip Y-axis only
+        // - In our coordinate system, we need to flip Y-axis only
         use byteorder::{BigEndian, ReadBytesExt};
         use std::io::Cursor;
         
@@ -139,7 +144,21 @@ impl TileCache {
             .iter()
             .filter_map(|(coord, state)| {
                 if let TileState::Loaded(data) = state {
-                    Some((*coord, data))
+                    Some((*coord, data.as_ref()))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+    
+    /// Get snapshot of all loaded tiles (cheap Arc clone)
+    pub fn get_snapshot(&self) -> HashMap<TileCoord, std::sync::Arc<TileData>> {
+         self.tiles
+            .iter()
+            .filter_map(|(coord, state)| {
+                if let TileState::Loaded(data) = state {
+                    Some((*coord, data.clone()))
                 } else {
                     None
                 }

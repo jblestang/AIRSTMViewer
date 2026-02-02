@@ -111,13 +111,13 @@ pub fn process_downloads(
             DownloadResult::Success(tile_data) => {
                 info!("Downloaded tile: {:?}", tile_data.coord);
                 
-                // Save to disk cache
-                if let Err(e) = cache.save_to_disk(&tile_data) {
+                // Save to disk cache (explicit deref to help compiler)
+                if let Err(e) = cache.as_ref().save_to_disk(&tile_data) {
                     error!("Failed to save tile to disk: {}", e);
                 }
                 
-                // Update cache
-                cache.insert_tile(tile_data.coord, TileState::Loaded(tile_data));
+                // Update cache with Arc
+                cache.insert_tile(tile_data.coord, TileState::Loaded(std::sync::Arc::new(tile_data)));
             }
             DownloadResult::Missing(coord) => {
                 warn!("Tile not found: {:?}", coord);

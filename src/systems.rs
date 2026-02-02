@@ -63,11 +63,11 @@ pub fn tile_loader_system(
         }
 
         // Check disk cache first
-        if cache.is_cached_on_disk(&coord) {
-            match cache.load_from_disk(&coord) {
+        if cache.as_ref().is_cached_on_disk(&coord) {
+            match cache.as_ref().load_from_disk(&coord) {
                 Ok(tile_data) => {
                     info!("Loaded tile from disk cache: {:?}", coord);
-                    cache.insert_tile(coord, TileState::Loaded(tile_data));
+                    cache.insert_tile(coord, TileState::Loaded(std::sync::Arc::new(tile_data)));
                 }
                 Err(e) => {
                     error!("Failed to load tile from disk: {}", e);
@@ -165,8 +165,12 @@ fn spawn_tile_entity(
 ) {
     let builder = TerrainMeshBuilder::new(lod_manager.current_level);
     
+    // Create a snapshot of the cache for parallel access
+    // This avoids accessing the Res<TileCache> from multiple threads
+    let snapshot = cache.map(|c| c.get_snapshot());
+    
     let mesh = if let Some(data) = tile_data {
-        builder.build_mesh(data, colormap, radar, cache)
+        builder.build_mesh(data, colormap, radar, snapshot.as_ref())
     } else {
         builder.build_missing_mesh()
     };
