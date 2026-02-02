@@ -50,25 +50,9 @@ pub fn camera_flight_system(
         mouse_motion.clear();
     }
 
-    // Check for modifier keys (Command/Super)
-    let super_pressed = keys.pressed(KeyCode::SuperLeft) || keys.pressed(KeyCode::SuperRight);
-
-    // Keyboard rotation (Command + Arrows)
-    let mut rotation_delta = Vec2::ZERO;
-    if super_pressed {
-        if keys.pressed(KeyCode::ArrowLeft) { rotation_delta.x += 1.0; }
-        if keys.pressed(KeyCode::ArrowRight) { rotation_delta.x -= 1.0; }
-        if keys.pressed(KeyCode::ArrowUp) { rotation_delta.y += 1.0; }
-        if keys.pressed(KeyCode::ArrowDown) { rotation_delta.y -= 1.0; }
-        
-        if rotation_delta != Vec2::ZERO {
-            // Apply rotation with same speed as mouse
-            let yaw = Quat::from_rotation_y(rotation_delta.x * camera.rotate_speed * 10.0); // Multiplier for keys
-            let pitch = Quat::from_rotation_x(rotation_delta.y * camera.rotate_speed * 10.0);
-            transform.rotation = yaw * transform.rotation * pitch;
-        }
-    }
-
+    // Check for Shift key (used for switching between Translation and Zoom/Rotate)
+    let shift_pressed = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+    
     // Reset Camera (R)
     if keys.just_pressed(KeyCode::KeyR) {
         let tile_size = 3601.0;
@@ -81,35 +65,60 @@ pub fn camera_flight_system(
         return;
     }
 
-    // WASD / Arrow keys for movement
+    // WASD Movement (Standard - Keep as fallback/alternative)
     let mut direction = Vec3::ZERO;
+    let mut rotation_yaw = 0.0;
     
-    // W / ArrowUp (only if not rotating)
-    if keys.pressed(KeyCode::KeyW) || (!super_pressed && keys.pressed(KeyCode::ArrowUp)) {
-        direction += transform.forward().as_vec3();
+    if keys.pressed(KeyCode::KeyW) { direction += transform.forward().as_vec3(); }
+    if keys.pressed(KeyCode::KeyS) { direction -= transform.forward().as_vec3(); }
+    if keys.pressed(KeyCode::KeyA) { direction -= transform.right().as_vec3(); }
+    if keys.pressed(KeyCode::KeyD) { direction += transform.right().as_vec3(); }
+
+    // Logic for Arrow Keys
+    if shift_pressed {
+        // Shift + Arrows = Zoom and Rotate
+        
+        // Shift + Up = Zoom In (Move Forward)
+        if keys.pressed(KeyCode::ArrowUp) {
+            direction += transform.forward().as_vec3();
+        }
+        // Shift + Down = Zoom Out (Move Backward)
+        if keys.pressed(KeyCode::ArrowDown) {
+            direction -= transform.forward().as_vec3();
+        }
+        // Shift + Left = Turn Right
+        if keys.pressed(KeyCode::ArrowLeft) {
+            rotation_yaw -= 1.0;
+        }
+        // Shift + Right = Turn Left
+        if keys.pressed(KeyCode::ArrowRight) {
+            rotation_yaw += 1.0;
+        }
+    } else {
+        // Plain Arrows = Translate (Screen Plane/Altitude)
+        
+        // Up = Translate Up (Altitude +)
+        if keys.pressed(KeyCode::ArrowUp) {
+            direction.y += 1.0;
+        }
+        // Down = Translate Down (Altitude -)
+        if keys.pressed(KeyCode::ArrowDown) {
+            direction.y -= 1.0;
+        }
+        // Left = Translate Left
+        if keys.pressed(KeyCode::ArrowLeft) {
+            direction -= transform.right().as_vec3();
+        }
+        // Right = Translate Right
+        if keys.pressed(KeyCode::ArrowRight) {
+            direction += transform.right().as_vec3();
+        }
     }
-    // S / ArrowDown
-    if keys.pressed(KeyCode::KeyS) || (!super_pressed && keys.pressed(KeyCode::ArrowDown)) {
-        direction -= transform.forward().as_vec3();
-    }
-    // A / ArrowLeft
-    if keys.pressed(KeyCode::KeyA) || (!super_pressed && keys.pressed(KeyCode::ArrowLeft)) {
-        direction -= transform.right().as_vec3();
-    }
-    // D / ArrowRight
-    if keys.pressed(KeyCode::KeyD) || (!super_pressed && keys.pressed(KeyCode::ArrowRight)) {
-        direction += transform.right().as_vec3();
-    }
-    
-    // Altitude: Q/E or Space/Shift
-    // Q / Space = Up
-    if keys.pressed(KeyCode::KeyQ) || keys.pressed(KeyCode::Space) {
-        direction.y += 1.0;
-    }
-    // E / Shift = Down (Standard game controls: Space=Jump/Up, Ctrl/C=Crouch/Down. But here E/Shift is used)
-    // User requested "Up/Down". Let's map PageUp/PageDown too.
-    if keys.pressed(KeyCode::KeyE) || keys.pressed(KeyCode::ShiftLeft) {
-        direction.y -= 1.0;
+
+    // Apply Rotation
+    if rotation_yaw != 0.0 {
+        let yaw = Quat::from_rotation_y(rotation_yaw * camera.rotate_speed * 10.0); // 10x multiplier for keys
+        transform.rotation = yaw * transform.rotation;
     }
     
     // Normalize and apply movement
