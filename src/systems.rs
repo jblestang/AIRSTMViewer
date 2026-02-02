@@ -102,8 +102,11 @@ pub fn mesh_update_system(
     task_query: Query<&MeshGenTask>,
     radar: Res<crate::radar::Radar>,
     regen_query: Query<Entity, With<NeedsRegen>>,
+    camera_query: Query<&Transform, With<Camera>>,
 ) {
-    // Check if LOD changed - if so, mark all tiles for regeneration
+    // Check if LOD changed globaly - if so, mark all tiles for regeneration
+    // Note: With per-tile LOD, we might not need global triggers as much, 
+    // but useful if user manually changes settings.
     if lod_manager.is_changed() {
         for (entity, _) in tile_query.iter() {
             commands.entity(entity).insert(NeedsRegen);
@@ -112,22 +115,52 @@ pub fn mesh_update_system(
     
     // Regenerate meshes (remove existing, trigger new task)
     for entity in regen_query.iter() {
-         commands.entity(entity).despawn(); // Despawn old mesh to force regen
+         commands.entity(entity).despawn(); 
     }
 
-    // Prepare snapshot of cache for background threads
-    // Wrap in Arc for cheap cloning across tasks
-    let snapshot = std::sync::Arc::new(cache.get_snapshot());
+    let Ok(camera_transform) = camera_query.get_single() else {
+        return;
+    };
+    let camera_pos = camera_transform.translation;
+
+    // Prepare snapshot of cache for background threads (Lazy)
+    let mut snapshot: Option<std::sync::Arc<std::collections::HashMap<TileCoord, std::sync::Arc<crate::tile::TileData>>>> = None;
+    
+    // Throttle: Only spawn a limited number of tasks per frame to keep UI responsive
+    let mut tasks_spawned = 0;
+    const MAX_TASKS_PER_FRAME: usize = 2;
 
     // Iterate loaded tiles and check if we need to spawn a task
     for (coord, tile_state) in cache.tiles.iter() {
         if let TileState::Loaded(data_arc) = tile_state {
             // Check if entity already exists
+            // Optimization: We could store entities in a map for faster lookup, but iteration is okay for <100 tiles
             let exists = tile_query.iter().any(|(_, tile)| tile.coord == *coord);
-            // Check if task is already pending
             let pending = task_query.iter().any(|t| t.coord == *coord);
             
             if !exists && !pending {
+                // Throttle check
+                if tasks_spawned >= MAX_TASKS_PER_FRAME {
+                    break; 
+                }
+
+                // Lazy Snapshot Creation
+                if snapshot.is_none() {
+                     snapshot = Some(std::sync::Arc::new(cache.get_snapshot()));
+                }
+
+                // Calculate Distance-based LOD
+                let tile_size = 3601.0;
+                // Center of tile in world space
+                // x = (lon + 0.5) * size
+                // z = -(lat + 0.5) * size
+                let center_x = (coord.lon as f32 + 0.5) * tile_size;
+                let center_z = -((coord.lat as f32 + 0.5) * tile_size);
+                let tile_center = Vec3::new(center_x, 0.0, center_z);
+                
+                let distance = camera_pos.distance(tile_center);
+                let lod_level = lod_manager.calculate_lod(distance);
+
                 // Spawn Mesh Generation Task
                 let thread_pool = AsyncComputeTaskPool::get();
                 
@@ -135,20 +168,17 @@ pub fn mesh_update_system(
                 let data = data_arc.clone();
                 let colormap = colormap.clone();
                 let radar = radar.clone();
-                let cache_snapshot = snapshot.clone();
-                let lod_level = lod_manager.current_level;
+                let cache_snapshot = snapshot.as_ref().unwrap().clone();
                 
                 let task = thread_pool.spawn(async move {
                     let builder = TerrainMeshBuilder::new(lod_level);
-                    // build_mesh uses the snapshot for raycasting
-                    // cache_snapshot is Arc<HashMap>, we deref to &HashMap
                     builder.build_mesh(&data, &colormap, Some(&radar), Some(cache_snapshot.as_ref()))
                 });
 
-                // Spawn a marker entity to hold the task
                 commands.spawn(MeshGenTask { task, coord });
+                tasks_spawned += 1;
                 
-                info!("Queued mesh generation for {:?}", coord);
+                info!("Queued mesh generation for {:?} (LOD {}, Dist {:.0})", coord, lod_level, distance);
             }
         }
     }
