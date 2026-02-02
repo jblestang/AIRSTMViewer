@@ -56,8 +56,8 @@ pub fn camera_flight_system(
     // Reset Camera (R)
     if keys.just_pressed(KeyCode::KeyR) {
         let tile_size = 3601.0;
-        let center_x = 7.4217 * tile_size;
-        let center_z = -43.7686 * tile_size;
+        let center_x = 7.42639 * tile_size;
+        let center_z = -43.77528 * tile_size;
         
         *transform = Transform::from_xyz(center_x, 15000.0, center_z + 5000.0)
             .looking_at(Vec3::new(center_x, 0.0, center_z - 5000.0), Vec3::Y);
@@ -145,8 +145,8 @@ pub fn camera_flight_system(
 pub fn setup_camera(mut commands: Commands) {
     // Center on Mont Agel (N43.76 E7.42)
     let tile_size = 3601.0;
-    let center_x = 7.4217 * tile_size;  // Longitude 7.42E
-    let center_z = -43.7686 * tile_size; // Latitude 43.76N
+    let center_x = 7.42639 * tile_size;  // Longitude 7.42639E
+    let center_z = -43.77528 * tile_size; // Latitude 43.77528N
     
     // Position camera SOUTH of target (More Positive Z), looking NORTH (Negative Z)
     commands.spawn((

@@ -12,8 +12,8 @@ pub struct Radar {
 impl Default for Radar {
     fn default() -> Self {
         Self {
-            // Mont Agel coordinates
-            position: DVec3::new(43.7686, 7.4217, 1148.0), 
+            // Mont Agel coordinates (Wikipedia: 43.77528, 7.42639)
+            position: DVec3::new(43.77528, 7.42639, 1148.0), 
             enabled: true,
             max_range: 400_000.0, // 400 km range
         }
@@ -185,13 +185,13 @@ pub fn setup_radar_marker(
     let y = radar.position.z as f32 * height_scale;
 
     commands.spawn((
-        Mesh3d(meshes.add(Sphere::new(500.0))), // Significant size to be seen
+        Mesh3d(meshes.add(Sphere::new(100.0))), // Significant size to be seen
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::srgb(0.0, 1.0, 1.0), // Cyan
             emissive: LinearRgba::rgb(0.0, 5.0, 5.0), // Bright glow
             unlit: true,
             ..default()
         })),
-        Transform::from_xyz(x, y + 500.0, z), // Lift slightly
+        Transform::from_xyz(x, y + 100.0, z), // Lift slightly
     ));
 }
