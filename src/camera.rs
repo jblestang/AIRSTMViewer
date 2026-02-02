@@ -69,6 +69,18 @@ pub fn camera_flight_system(
         }
     }
 
+    // Reset Camera (R)
+    if keys.just_pressed(KeyCode::KeyR) {
+        let tile_size = 3601.0;
+        let center_x = 7.4217 * tile_size;
+        let center_z = -43.7686 * tile_size;
+        
+        *transform = Transform::from_xyz(center_x, 15000.0, center_z + 5000.0)
+            .looking_at(Vec3::new(center_x, 0.0, center_z - 5000.0), Vec3::Y);
+        info!("Camera reset to home position");
+        return;
+    }
+
     // WASD / Arrow keys for movement
     let mut direction = Vec3::ZERO;
     
@@ -89,13 +101,14 @@ pub fn camera_flight_system(
         direction += transform.right().as_vec3();
     }
     
-    // Q/E or Shift/Space for vertical movement
-    // Q/Shift = Up (Ascend)
-    if keys.pressed(KeyCode::KeyQ) || keys.pressed(KeyCode::ShiftLeft) {
+    // Altitude: Q/E or Space/Shift
+    // Q / Space = Up
+    if keys.pressed(KeyCode::KeyQ) || keys.pressed(KeyCode::Space) {
         direction.y += 1.0;
     }
-    // E/Space = Down (Descend)
-    if keys.pressed(KeyCode::KeyE) || keys.pressed(KeyCode::Space) {
+    // E / Shift = Down (Standard game controls: Space=Jump/Up, Ctrl/C=Crouch/Down. But here E/Shift is used)
+    // User requested "Up/Down". Let's map PageUp/PageDown too.
+    if keys.pressed(KeyCode::KeyE) || keys.pressed(KeyCode::ShiftLeft) {
         direction.y -= 1.0;
     }
     
@@ -103,11 +116,10 @@ pub fn camera_flight_system(
     if direction.length_squared() > 0.0 {
         direction = direction.normalize();
         
-        // Boost speed with Shift (if not rotating/using shift for up)
-        // Actually Shift is used for UP. Ctrl for speed? 
-        // Let's stick to base speed for now.
+        // Boost speed with Control
+        let speed_mult = if keys.pressed(KeyCode::ControlLeft) { 5.0 } else { 1.0 };
         
-        transform.translation += direction * camera.move_speed * dt;
+        transform.translation += direction * camera.move_speed * speed_mult * dt;
     }
     
     // Mouse wheel zoom (move forward/backward) along view vector
