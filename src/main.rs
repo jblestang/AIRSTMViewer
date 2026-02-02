@@ -7,6 +7,7 @@ mod mesh_builder;
 mod systems;
 mod tile;
 mod radar;
+mod ui;
 
 use bevy::prelude::*;
 
@@ -32,6 +33,7 @@ fn main() {
             setup_scene,
             camera::setup_camera,
             radar::setup_radar_marker,
+            ui::setup_ui,
         ))
         // Update systems
         // Update systems
@@ -42,6 +44,7 @@ fn main() {
             systems::mesh_update_system,
             systems::process_mesh_tasks,
             radar::update_radar_position_system,
+            ui::update_mouse_coordinates_system,
         ))
         .add_systems(Update, (
             downloader::process_downloads,

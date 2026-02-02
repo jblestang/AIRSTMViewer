@@ -13,9 +13,9 @@ impl Default for Radar {
     fn default() -> Self {
         Self {
             // Mont Agel coordinates (Wikipedia: 43.77528, 7.42639)
-            position: DVec3::new(43.77528, 7.42639, 1148.0), 
+            position: DVec3::new(43.77528, 7.42639, 1248.0), 
             enabled: true,
-            max_range: 400_000.0, // 400 km range
+            max_range: 515_000.0, // 400 km range
         }
     }
 }
