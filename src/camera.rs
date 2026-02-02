@@ -68,6 +68,7 @@ pub fn camera_flight_system(
     // WASD Movement (Standard - Keep as fallback/alternative)
     let mut direction = Vec3::ZERO;
     let mut rotation_yaw = 0.0;
+    let mut rotation_pitch = 0.0;
     
     if keys.pressed(KeyCode::KeyW) { direction += transform.forward().as_vec3(); }
     if keys.pressed(KeyCode::KeyS) { direction -= transform.forward().as_vec3(); }
@@ -76,21 +77,21 @@ pub fn camera_flight_system(
 
     // Logic for Arrow Keys
     if shift_pressed {
-        // Shift + Arrows = Zoom and Rotate
+        // Shift + Arrows = View Rotation (Pitch/Yaw)
         
-        // Shift + Up = Zoom In (Move Forward)
+        // Shift + Up = Look Up (Pitch +)
         if keys.pressed(KeyCode::ArrowUp) {
-            direction += transform.forward().as_vec3();
+            rotation_pitch += 1.0;
         }
-        // Shift + Down = Zoom Out (Move Backward)
+        // Shift + Down = Look Down (Pitch -)
         if keys.pressed(KeyCode::ArrowDown) {
-            direction -= transform.forward().as_vec3();
+            rotation_pitch -= 1.0;
         }
-        // Shift + Left = Turn Right
+        // Shift + Left = Turn Right (Yaw -)
         if keys.pressed(KeyCode::ArrowLeft) {
             rotation_yaw -= 1.0;
         }
-        // Shift + Right = Turn Left
+        // Shift + Right = Turn Left (Yaw +)
         if keys.pressed(KeyCode::ArrowRight) {
             rotation_yaw += 1.0;
         }
@@ -116,9 +117,16 @@ pub fn camera_flight_system(
     }
 
     // Apply Rotation
-    if rotation_yaw != 0.0 {
-        let yaw = Quat::from_rotation_y(rotation_yaw * camera.rotate_speed * 10.0); // 10x multiplier for keys
-        transform.rotation = yaw * transform.rotation;
+    if rotation_yaw != 0.0 || rotation_pitch != 0.0 {
+        let yaw = Quat::from_rotation_y(rotation_yaw * camera.rotate_speed * 10.0);
+        let pitch = Quat::from_rotation_x(rotation_pitch * camera.rotate_speed * 10.0);
+        
+        // Yaw is global (applied before current rotation), Pitch is local (applied after)
+        // transform.rotation = yaw * transform.rotation * pitch; 
+        
+        // Actually, for free cam, we often want yaw to be around global Y.
+        // And pitch around local X.
+        transform.rotation = yaw * transform.rotation * pitch;
     }
     
     // Normalize and apply movement
