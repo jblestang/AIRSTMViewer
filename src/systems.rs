@@ -51,7 +51,7 @@ pub fn tile_loader_system(
 
     // Calculate visible range based on camera height and viewing distance
     // Higher camera = more tiles visible
-    let view_distance = (cam_pos.y / 1000.0).max(3.0).min(20.0); // 3-20 tiles in each direction
+    let view_distance = (cam_pos.y / 1000.0).max(1.0).min(8.0); // 1-8 tiles radius
     let tile_radius = view_distance.ceil() as i32;
     
     // Load all tiles within viewing distance

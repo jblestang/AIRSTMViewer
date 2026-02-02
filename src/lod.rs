@@ -19,20 +19,22 @@ impl Default for LodManager {
 
 impl LodManager {
     /// Calculate LOD level based on camera distance/zoom
+    /// Calculate LOD level based on camera distance/zoom
     pub fn calculate_lod(&self, camera_distance: f32) -> usize {
-        // Closer = higher detail (lower LOD value)
-        // Further = lower detail (higher LOD value)
+        // Tile size is approx 3601.0 units.
+        // LOD 1 = 13M verts (Too heavy)
+        // LOD 2 = 3.2M verts
+        // LOD 4 = 800k verts (Reasonable Max)
+        // LOD 8 = 200k verts
+        // LOD 16 = 50k verts
         
-        if camera_distance < 50.0 {
-            1 // Full resolution
-        } else if camera_distance < 100.0 {
-            2 // Half resolution
-        } else if camera_distance < 200.0 {
-            4 // Quarter resolution
-        } else if camera_distance < 400.0 {
-            8
+        // Thresholds based on Tile Size (3600)
+        if camera_distance < 5000.0 {
+            4 // Max detail (approx 1.5 tiles distance)
+        } else if camera_distance < 10000.0 {
+            8 // Medium detail (approx 3 tiles)
         } else {
-            16 // Very low resolution for distant views
+            16 // Low detail
         }
     }
 
