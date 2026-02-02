@@ -161,6 +161,23 @@ pub fn mesh_update_system(
                 let distance = camera_pos.distance(tile_center);
                 let lod_level = lod_manager.calculate_lod(distance);
 
+                // Frustum Culling / Directional Priority
+                // Only generate meshes if looking roughly towards them
+                let cam_forward = camera_transform.forward();
+                let dir_to_tile = (tile_center - camera_pos).normalize_or_zero();
+                
+                // dot > 0.0 means in front (90 deg). 
+                // dot > 0.5 means within 60 deg cone.
+                // We use 0.2 to be generous but lenient on peripherals
+                let is_visible = cam_forward.dot(dir_to_tile) > 0.2;
+
+                // Exception: Always generate very close tiles regardless of direction (for rotating)
+                let is_close = distance < 5000.0;
+                
+                if !is_visible && !is_close {
+                    continue;
+                }
+
                 // Spawn Mesh Generation Task
                 let thread_pool = AsyncComputeTaskPool::get();
                 
