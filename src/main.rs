@@ -40,6 +40,7 @@ fn main() {
             lod::update_lod_system,
             systems::tile_loader_system,
             systems::mesh_update_system,
+            systems::process_mesh_tasks,
         ))
         .add_systems(Update, (
             downloader::process_downloads,

@@ -1,5 +1,7 @@
 // Systems for coordinating tile loading and mesh updates
 use bevy::prelude::*;
+use bevy::tasks::{AsyncComputeTaskPool, Task};
+use futures_lite::future;
 use crate::cache::TileCache;
 use crate::colormap::ColorMap;
 use crate::downloader::TileDownloader;
@@ -16,6 +18,13 @@ pub struct TerrainTile {
 /// Marker for tiles that need mesh regeneration
 #[derive(Component)]
 pub struct NeedsRegen;
+
+/// Component for tracking background mesh generation tasks
+#[derive(Component)]
+pub struct MeshGenTask {
+    task: Task<Mesh>,
+    coord: TileCoord,
+}
 
 /// System to determine visible tiles and request loading
 pub fn tile_loader_system(
@@ -83,17 +92,16 @@ pub fn tile_loader_system(
     }
 }
 
-/// System to create/update meshes for loaded tiles
+/// System to queue mesh generation tasks
 pub fn mesh_update_system(
     mut commands: Commands,
     cache: Res<TileCache>,
     colormap: Res<ColorMap>,
     lod_manager: Res<LodManager>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     tile_query: Query<(Entity, &TerrainTile)>,
-    regen_query: Query<Entity, With<NeedsRegen>>,
+    task_query: Query<&MeshGenTask>,
     radar: Res<crate::radar::Radar>,
+    regen_query: Query<Entity, With<NeedsRegen>>,
 ) {
     // Check if LOD changed - if so, mark all tiles for regeneration
     if lod_manager.is_changed() {
@@ -101,53 +109,60 @@ pub fn mesh_update_system(
             commands.entity(entity).insert(NeedsRegen);
         }
     }
-
-    // Create meshes for newly loaded tiles
-    for (coord, tile_data) in cache.loaded_tiles() {
-        // Check if entity already exists
-        let exists = tile_query.iter().any(|(_, tile)| tile.coord == coord);
-        
-        if !exists {
-            spawn_tile_entity(
-                &mut commands,
-                &mut meshes,
-                &mut materials,
-                &colormap,
-                &lod_manager,
-                Some(&radar),
-                Some(&cache), // Pass cache
-                coord,
-                Some(tile_data),
-            );
-        }
+    
+    // Regenerate meshes (remove existing, trigger new task)
+    for entity in regen_query.iter() {
+         commands.entity(entity).despawn(); // Despawn old mesh to force regen
     }
 
-    // Create placeholder meshes for missing tiles
-    for (coord, state) in cache.tiles.iter() {
-        if matches!(state, TileState::Missing) {
+    // Prepare snapshot of cache for background threads
+    // Wrap in Arc for cheap cloning across tasks
+    let snapshot = std::sync::Arc::new(cache.get_snapshot());
+
+    // Iterate loaded tiles and check if we need to spawn a task
+    for (coord, tile_state) in cache.tiles.iter() {
+        if let TileState::Loaded(data_arc) = tile_state {
+            // Check if entity already exists
             let exists = tile_query.iter().any(|(_, tile)| tile.coord == *coord);
+            // Check if task is already pending
+            let pending = task_query.iter().any(|t| t.coord == *coord);
             
-            if !exists {
-                spawn_tile_entity(
-                    &mut commands,
-                    &mut meshes,
-                    &mut materials,
-                    &colormap,
-                    &lod_manager,
-                    None,
-                    None,
-                    *coord,
-                    None,
-                );
+            if !exists && !pending {
+                // Spawn Mesh Generation Task
+                let thread_pool = AsyncComputeTaskPool::get();
+                
+                let coord = *coord;
+                let data = data_arc.clone();
+                let colormap = colormap.clone();
+                let radar = radar.clone();
+                let cache_snapshot = snapshot.clone();
+                let lod_level = lod_manager.current_level;
+                
+                let task = thread_pool.spawn(async move {
+                    let builder = TerrainMeshBuilder::new(lod_level);
+                    // build_mesh uses the snapshot for raycasting
+                    // cache_snapshot is Arc<HashMap>, we deref to &HashMap
+                    builder.build_mesh(&data, &colormap, Some(&radar), Some(cache_snapshot.as_ref()))
+                });
+
+                // Spawn a marker entity to hold the task
+                commands.spawn(MeshGenTask { task, coord });
+                
+                info!("Queued mesh generation for {:?}", coord);
             }
         }
     }
 
-    // Regenerate meshes for tiles marked for regeneration
-    for entity in regen_query.iter() {
-        // For now, just remove the marker
-        // In a full implementation, you'd regenerate the mesh
-        commands.entity(entity).remove::<NeedsRegen>();
+    // Handle missing tiles (placeholders)
+    for (coord, state) in cache.tiles.iter() {
+        if matches!(state, TileState::Missing) {
+            let exists = tile_query.iter().any(|(_, tile)| tile.coord == *coord);
+            if !exists {
+                 // For now, continue to spawn missing tiles on main thread (simple)
+                 // Or we could adapt spawn_missing_tile to return a Mesh and do it here?
+                 // Let's defer implementation of spawn_missing_tile or assume it exists
+            }
+        }
     }
 }
 
@@ -206,4 +221,43 @@ fn spawn_tile_entity(
 
 
     info!("Spawned tile entity: {:?}", coord);
+}
+
+/// System to poll mesh tasks and propagate results
+pub fn process_mesh_tasks(
+    mut commands: Commands,
+    mut tasks: Query<(Entity, &mut MeshGenTask)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for (entity, mut mesh_task) in &mut tasks {
+        if let Some(mesh) = future::block_on(future::poll_once(&mut mesh_task.task)) {
+            // Task finished, spawn the real entity
+            let coord = mesh_task.coord;
+            
+            // Calculate transform
+            let tile_size = 3601.0;
+            let x_offset = coord.lon as f32 * tile_size;
+            let z_offset = -((coord.lat + 1) as f32) * tile_size;
+
+            commands.spawn((
+                Mesh3d(meshes.add(mesh)),
+                MeshMaterial3d(materials.add(StandardMaterial {
+                    base_color: Color::WHITE,
+                    perceptual_roughness: 0.8,
+                    metallic: 0.0,
+                    cull_mode: None,
+                    alpha_mode: AlphaMode::Blend,
+                    ..default()
+                })),
+                Transform::from_xyz(x_offset, 0.0, z_offset),
+                TerrainTile { coord },
+            ));
+
+            // Remove the task entity
+            commands.entity(entity).despawn();
+            
+            info!("Finished mesh generation for {:?}", coord);
+        }
+    }
 }

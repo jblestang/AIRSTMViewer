@@ -11,3 +11,4 @@ serde = { version = "1.0", features = ["derive"] }
 byteorder = "1.5"
 thiserror = "2.0"
 rayon = "1.10"
+futures-lite = "2.6.1"
