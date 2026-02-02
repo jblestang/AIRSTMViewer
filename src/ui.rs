@@ -8,7 +8,7 @@ pub struct MouseCoordinatesText;
 
 pub fn setup_ui(mut commands: Commands) {
     commands.spawn((
-        Text::new("Lat: --\nLon: --\nAlt: --"),
+        Text::new("Lat: --\nLon: --\nAlt: --\nDist: --"),
         TextFont {
             font_size: 20.0,
             ..default()
@@ -29,6 +29,7 @@ pub fn update_mouse_coordinates_system(
     window_query: Query<&Window, With<PrimaryWindow>>,
     camera_query: Query<(&Camera, &GlobalTransform)>,
     cache: Res<TileCache>,
+    radar: Res<crate::radar::Radar>,
     mut text_query: Query<&mut Text, With<MouseCoordinatesText>>,
 ) {
     let (camera, camera_transform) = camera_query.single();
@@ -96,11 +97,30 @@ pub fn update_mouse_coordinates_system(
                                  // HIT!
                                  // Refine intersection? (Binary search could be added here)
                                  
+                                 // Calculate distance to Radar
+                                 let radar_dist_nm = if radar.enabled {
+                                    // Haversine distance
+                                    let r_earth = 6_371_000.0;
+                                    let d_lat = (lat as f64 - radar.position.x).to_radians();
+                                    let d_lon = (lon as f64 - radar.position.y).to_radians();
+                                    let lat1 = radar.position.x.to_radians();
+                                    let lat2 = (lat as f64).to_radians();
+
+                                    let a = (d_lat / 2.0).sin().powi(2)
+                                        + lat1.cos() * lat2.cos() * (d_lon / 2.0).sin().powi(2);
+                                    let c = 2.0 * a.sqrt().asin();
+                                    let dist_m = r_earth * c;
+                                    
+                                    dist_m / 1852.0 // Convert to NM
+                                 } else {
+                                     0.0
+                                 };
+
                                  // Update Text
                                  for mut text in text_query.iter_mut() {
                                      text.0 = format!(
-                                         "Lat: {:.5}\nLon: {:.5}\nAlt: {}m", 
-                                         lat, lon, h
+                                         "Lat: {:.5}\nLon: {:.5}\nAlt: {}m\nDist: {:.1} NM", 
+                                         lat, lon, h, radar_dist_nm
                                      );
                                  }
                                  return;
@@ -112,7 +132,7 @@ pub fn update_mouse_coordinates_system(
              
              // No hit
              for mut text in text_query.iter_mut() {
-                 text.0 = "Lat: --\nLon: --\nAlt: --".to_string();
+                 text.0 = "Lat: --\nLon: --\nAlt: --\nDist: --".to_string();
              }
         }
     }
