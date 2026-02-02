@@ -53,6 +53,12 @@ pub fn update_lod_system(
 ) {
     if let Ok(camera_transform) = camera_query.get_single() {
         let camera_height = camera_transform.translation.y.abs();
-        lod_manager.update_from_camera(camera_height);
+        let new_level = lod_manager.calculate_lod(camera_height);
+        
+        // Only mutate if actually changed to avoid triggering change detection
+        if new_level != lod_manager.current_level {
+            info!("LOD changed: {} -> {}", lod_manager.current_level, new_level);
+            lod_manager.current_level = new_level;
+        }
     }
 }
