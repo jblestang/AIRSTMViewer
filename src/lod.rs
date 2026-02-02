@@ -22,19 +22,18 @@ impl LodManager {
     /// Calculate LOD level based on camera distance/zoom
     pub fn calculate_lod(&self, camera_distance: f32) -> usize {
         // Tile size is approx 3601.0 units.
-        // LOD 1 = 13M verts (Too heavy)
-        // LOD 2 = 3.2M verts
-        // LOD 4 = 800k verts (Reasonable Max)
-        // LOD 8 = 200k verts
-        // LOD 16 = 50k verts
+        // We generally want divisors of 3600 to avoid edge gaps.
+        // LOD 8  = 3600/8 = 450 grid => 200k verts
+        // LOD 20 = 3600/20 = 180 grid => 32k verts
+        // LOD 40 = 3600/40 = 90 grid  => 8k verts
         
         // Thresholds based on Tile Size (3600)
         if camera_distance < 5000.0 {
-            4 // Max detail (approx 1.5 tiles distance)
-        } else if camera_distance < 10000.0 {
-            8 // Medium detail (approx 3 tiles)
+            8 // High detail
+        } else if camera_distance < 15000.0 {
+            20 // Medium detail
         } else {
-            16 // Low detail
+            40 // Low detail
         }
     }
 
