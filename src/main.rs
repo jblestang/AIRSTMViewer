@@ -41,6 +41,7 @@ fn main() {
             systems::tile_loader_system,
             systems::mesh_update_system,
             systems::process_mesh_tasks,
+            radar::update_radar_position_system,
         ))
         .add_systems(Update, (
             downloader::process_downloads,

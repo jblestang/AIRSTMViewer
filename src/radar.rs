@@ -176,9 +176,8 @@ pub fn setup_radar_marker(
     // Y = Alt * HeightScale
     
     let tile_size = 3601.0;
-    // Hardcoded height scale from mesh_builder (0.25)
-    // ideally this should come from a resource, but for now matching the builder.
-    let height_scale = 0.25; 
+    // Fix: Mesh builder uses 1.0, not 0.25
+    let height_scale = 1.0; 
     
     let x = radar.position.y as f32 * tile_size;
     let z = -(radar.position.x as f32) * tile_size; // Lat is negative Z
@@ -193,5 +192,61 @@ pub fn setup_radar_marker(
             ..default()
         })),
         Transform::from_xyz(x, y + 100.0, z), // Lift slightly
+        RadarMarker,
     ));
+}
+
+#[derive(Component)]
+pub struct RadarMarker;
+
+/// System to continuously snap the radar marker to the ground surface
+pub fn update_radar_position_system(
+    radar: Res<Radar>,
+    cache: Res<crate::cache::TileCache>,
+    mut query: Query<&mut Transform, With<RadarMarker>>,
+) {
+    if !radar.enabled { return; }
+
+    let tile_size = 3601.0;
+    let lat = radar.position.x;
+    let lon = radar.position.y;
+    
+    // Check if we have data for this location
+    let coord = crate::tile::TileCoord::from_world_coords(lat, lon);
+    
+    if let Some(crate::tile::TileState::Loaded(data)) = cache.tiles.get(&coord) {
+         // Sample height
+         let lat_base = coord.lat as f64;
+         let lon_base = coord.lon as f64;
+         
+         let d_lat = lat - lat_base;
+         let d_lon = lon - lon_base;
+         
+         // SRTM: y is inverted (0 at top, 3600 at bottom) relative to lat
+         // Lat goes 43 -> 44 (Bottom to Top in data? No, usually Top-Left origin)
+         // Wait, SRTM HGT: row 0 is North (Highest Lat), row 3600 is South.
+         // In our systems.rs/mesh logic: 
+         // let y = yi * step;
+         // let v_lat = (tile_lat_base + 1.0) - (y as f64 / 3600.0);
+         
+         // So: y_index = (1.0 - (lat - lat_base)) * 3600.0
+         let y_pct = 1.0 - d_lat;
+         let x_pct = d_lon;
+         
+         let pixel_x = (x_pct * 3600.0) as f32;
+         let pixel_y = (y_pct * 3600.0) as f32;
+         
+         if let Some(h) = data.get_height(pixel_x as usize, pixel_y as usize) {
+             for mut transform in query.iter_mut() {
+                 let terrain_height = h as f32; // Scale 1.0
+                 // Update Y to match terrain + offset
+                 // Smooth lerp or instant snap? Instant is fine for static radar.
+                 
+                 // Only update if significantly different (to allow manual offset override if needed, but we force it here)
+                 if (transform.translation.y - terrain_height).abs() > 10.0 {
+                      transform.translation.y = terrain_height + 50.0; // Place on top
+                 }
+             }
+         }
+    }
 }
