@@ -54,7 +54,9 @@ pub fn tile_loader_system(
 
     // Calculate visible range based on camera height and viewing distance
     // Higher camera = more tiles visible
-    let view_distance = (cam_pos.y / 1000.0).max(1.0).min(8.0); // 1-8 tiles radius
+    // Higher camera = more tiles visible
+    // Scale: 1 tile radius per 1000m height, up to max 20 tiles (approx 2000km view)
+    let view_distance = (cam_pos.y / 1000.0).max(1.0).min(20.0); 
     let tile_radius = view_distance.ceil() as i32;
     
     // Load all tiles within viewing distance
@@ -176,7 +178,8 @@ pub fn mesh_update_system(
                 let is_visible = cam_forward.dot(dir_to_tile) > 0.2;
 
                 // Exception: Always generate very close tiles regardless of direction (for rotating)
-                let is_close = distance < 5000.0;
+                // Exception: Always generate very close tiles regardless of direction (for rotating)
+                let is_close = distance < 20000.0; // Increased to 20km for better rotation feel
                 
                 if !is_visible && !is_close {
                     continue;
