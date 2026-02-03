@@ -55,8 +55,8 @@ pub fn tile_loader_system(
     // Calculate visible range based on camera height and viewing distance
     // Higher camera = more tiles visible
     // Higher camera = more tiles visible
-    // Scale: 1 tile radius per 1000m height, up to max 20 tiles (approx 2000km view)
-    let view_distance = (cam_pos.y / 1000.0).max(1.0).min(20.0); 
+    // Scale: 1 tile radius per 1000m height, up to max 40 tiles (approx 4000km view)
+    let view_distance = (cam_pos.y / 1000.0).max(1.0).min(40.0); 
     let tile_radius = view_distance.ceil() as i32;
     
     // Load all tiles within viewing distance
