@@ -80,7 +80,7 @@ impl TileCache {
         }
 
         let data = std::fs::read(&path)
-            .map_err(|e| format!("Failed to read tile file: {}", e))?;
+            .map_err(|e| format!("Failed to read tile file ({:?}): {}", path, e))?;
 
         // SRTM files are raw binary, big-endian i16 values
         // SRTM1 (1 arc-second) is 3601x3601 = 12,967,201 samples = 25,934,402 bytes
@@ -88,7 +88,8 @@ impl TileCache {
         
         if data.len() != expected_size {
             return Err(format!(
-                "Invalid tile size: expected {} bytes, got {}",
+                "Invalid tile size ({:?}): expected {} bytes, got {}",
+                path,
                 expected_size,
                 data.len()
             ));
@@ -110,7 +111,7 @@ impl TileCache {
             for x in 0..tile.size {
                 tile.heights[y * tile.size + x] = cursor
                     .read_i16::<BigEndian>()
-                    .map_err(|e| format!("Failed to parse height data: {}", e))?;
+                    .map_err(|e| format!("Failed to parse height data ({:?}): {}", path, e))?;
             }
         }
 

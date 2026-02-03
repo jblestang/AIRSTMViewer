@@ -82,7 +82,7 @@ pub fn tile_loader_system(
                     cache.insert_tile(coord, TileState::Loaded(std::sync::Arc::new(tile_data)));
                 }
                 Err(e) => {
-                    error!("Failed to load tile from disk: {}", e);
+                    error!("Failed to load tile from disk ({}): {}", coord.filename(), e);
                     cache.insert_tile(coord, TileState::Error(e));
                 }
             }
