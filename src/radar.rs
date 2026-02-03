@@ -101,7 +101,7 @@ impl Radar {
         let num_steps = num_steps.max(5).min(200); 
         
         // Access Optimization: Cache the current tile data locally to avoid Hash lookups
-        use crate::tile::{TileCoord, TileState};
+        use crate::tile::TileCoord;
         let mut current_tile_coord: Option<TileCoord> = None;
         let mut current_tile_data: Option<&crate::tile::TileData> = None;
 

@@ -32,7 +32,7 @@ pub fn tile_loader_system(
     mut cache: ResMut<TileCache>,
     downloader: Res<TileDownloader>,
 ) {
-    let Ok(camera_transform) = camera_query.get_single() else {
+    let Ok(camera_transform) = camera_query.single() else {
         return;
     };
 
@@ -118,7 +118,7 @@ pub fn mesh_update_system(
          commands.entity(entity).despawn(); 
     }
 
-    let Ok(camera_transform) = camera_query.get_single() else {
+    let Ok(camera_transform) = camera_query.single() else {
         return;
     };
     let camera_pos = camera_transform.translation;

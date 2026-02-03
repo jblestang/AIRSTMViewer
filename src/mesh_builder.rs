@@ -2,7 +2,8 @@
 use crate::colormap::ColorMap;
 use crate::tile::TileData;
 use bevy::prelude::*;
-use bevy::render::mesh::{Indices, PrimitiveTopology};
+use bevy::mesh::Indices;
+use bevy::render::render_resource::PrimitiveTopology;
 use std::collections::HashMap;
 use std::sync::Arc;
 use crate::tile::TileCoord;
@@ -57,8 +58,6 @@ impl TerrainMeshBuilder {
         let tile_lon_base = tile.coord.lon as f64;
         
         // Generate vertices in parallel using Rayon
-        use rayon::prelude::*;
-        
         // Generate vertices in parallel using Rayon (Outer loop only to reduce overhead)
         // We flatten the coordinate space to a single vector of indices to ensure load balancing
         let total_vertices = vertices_per_row * vertices_per_row;

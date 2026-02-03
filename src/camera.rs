@@ -29,7 +29,7 @@ pub fn camera_flight_system(
     mut scroll_events: EventReader<MouseWheel>,
     mut query: Query<(&mut Transform, &TerrainCamera)>,
 ) {
-    let Ok((mut transform, camera)) = query.get_single_mut() else {
+    let Ok((mut transform, camera)) = query.single_mut() else {
         return;
     };
 

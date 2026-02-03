@@ -32,8 +32,8 @@ pub fn update_mouse_coordinates_system(
     radar: Res<crate::radar::Radar>,
     mut text_query: Query<&mut Text, With<MouseCoordinatesText>>,
 ) {
-    let (camera, camera_transform) = camera_query.single();
-    let window = window_query.single();
+    let (camera, camera_transform) = camera_query.single().expect("Primary camera not found");
+    let window = window_query.single().expect("Primary window not found");
     
     if let Some(cursor_position) = window.cursor_position() {
         if let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_position) {

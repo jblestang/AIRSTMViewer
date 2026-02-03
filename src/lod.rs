@@ -52,7 +52,7 @@ pub fn update_lod_system(
     mut lod_manager: ResMut<LodManager>,
     camera_query: Query<&Transform, With<Camera>>,
 ) {
-    if let Ok(camera_transform) = camera_query.get_single() {
+    if let Ok(camera_transform) = camera_query.single() {
         let camera_height = camera_transform.translation.y.abs();
         let new_level = lod_manager.calculate_lod(camera_height);
         
