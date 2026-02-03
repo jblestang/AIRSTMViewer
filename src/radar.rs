@@ -1,22 +1,63 @@
 use bevy::prelude::*;
 use bevy::math::DVec3;
 
-/// Radar configuration resource
-#[derive(Resource, Clone, Debug)]
+/// Individual Radar Station
+#[derive(Clone, Debug)]
 pub struct Radar {
+    pub name: String,
     pub position: DVec3, // Lat (deg), Lon (deg), Alt (meters)
     pub enabled: bool,
     pub max_range: f32, // Max range in meters
+    pub color: Color,
 }
 
-impl Default for Radar {
+/// Resource holding all radar stations
+#[derive(Resource, Clone, Debug)]
+pub struct Radars {
+    pub stations: Vec<Radar>,
+}
+
+impl Default for Radars {
     fn default() -> Self {
         Self {
-            // Mont Agel coordinates (Wikipedia: 43.77528, 7.42639)
-            position: DVec3::new(43.77528, 7.42639, 1248.0), 
-            enabled: true,
-            max_range: 515_000.0, // 400 km range
+            stations: vec![
+                Radar {
+                    name: "Mont Agel".to_string(),
+                    position: DVec3::new(43.77528, 7.42639, 1248.0), 
+                    enabled: true,
+                    max_range: 515_000.0,
+                    color: Color::srgb(0.0, 1.0, 1.0), // Cyan
+                },
+                Radar {
+                    name: "Sainte-Baume".to_string(),
+                    // Jouc de l'Aigle coordinates
+                    position: DVec3::new(43.3337, 5.7866, 1148.0),
+                    enabled: true,
+                    max_range: 515_000.0,
+                    color: Color::srgb(1.0, 0.0, 1.0), // Magenta
+                },
+            ],
         }
+    }
+}
+
+impl Radars {
+    /// Check if a point is visible by ANY enabled radar station.
+    /// Returns (is_visible, color_of_station)
+    pub fn check_visibility(
+        &self,
+        target_lat: f64,
+        target_lon: f64,
+        target_alt: f32,
+        cache_snapshot: &std::collections::HashMap<crate::tile::TileCoord, std::sync::Arc<crate::tile::TileData>>,
+    ) -> (bool, Option<Color>) {
+        for radar in &self.stations {
+            if !radar.enabled { continue; }
+            if radar.is_visible_raycast(target_lat, target_lon, target_alt, cache_snapshot) {
+                return (true, Some(radar.color));
+            }
+        }
+        (false, None)
     }
 }
 
@@ -175,89 +216,81 @@ pub fn setup_radar_marker(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    radar: Res<Radar>,
+    radars: Res<Radars>,
 ) {
-    if !radar.enabled {
-        return;
-    }
-
-    // Convert Geo to World Coords
-    // X = Lon * TileSize
-    // Z = -Lat * TileSize
-    // Y = Alt * HeightScale
-    
     let tile_size = 3601.0;
-    // Fix: Mesh builder uses 1.0, not 0.25
     let height_scale = 1.0; 
-    
-    let x = radar.position.y as f32 * tile_size;
-    let z = -(radar.position.x as f32) * tile_size; // Lat is negative Z
-    let y = radar.position.z as f32 * height_scale;
 
-    commands.spawn((
-        Mesh3d(meshes.add(Sphere::new(100.0))), // Significant size to be seen
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.0, 1.0, 1.0), // Cyan
-            emissive: LinearRgba::rgb(0.0, 5.0, 5.0), // Bright glow
-            unlit: true,
-            ..default()
-        })),
-        Transform::from_xyz(x, y + 100.0, z), // Lift slightly
-        RadarMarker,
-    ));
+    for (index, radar) in radars.stations.iter().enumerate() {
+        if !radar.enabled {
+            continue;
+        }
+
+        let x = radar.position.y as f32 * tile_size;
+        let z = -(radar.position.x as f32) * tile_size; 
+        let y = radar.position.z as f32 * height_scale;
+
+        commands.spawn((
+            Mesh3d(meshes.add(Sphere::new(100.0))), 
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: radar.color, 
+                emissive: LinearRgba::from(radar.color) * 5.0, 
+                unlit: true,
+                ..default()
+            })),
+            Transform::from_xyz(x, y + 100.0, z), 
+            RadarMarker { index },
+        ));
+    }
 }
 
 #[derive(Component)]
-pub struct RadarMarker;
+pub struct RadarMarker {
+    pub index: usize,
+}
 
 /// System to continuously snap the radar marker to the ground surface
 pub fn update_radar_position_system(
-    radar: Res<Radar>,
+    radars: Res<Radars>,
     cache: Res<crate::cache::TileCache>,
-    mut query: Query<&mut Transform, With<RadarMarker>>,
+    mut query: Query<(&mut Transform, &RadarMarker)>,
 ) {
-    if !radar.enabled { return; }
+    for (mut transform, marker) in query.iter_mut() {
+        if marker.index >= radars.stations.len() {
+            continue;
+        }
+        let radar = &radars.stations[marker.index];
+        if !radar.enabled { continue; }
 
-    let tile_size = 3601.0;
-    let lat = radar.position.x;
-    let lon = radar.position.y;
-    
-    // Check if we have data for this location
-    let coord = crate::tile::TileCoord::from_world_coords(lat, lon);
-    
-    if let Some(crate::tile::TileState::Loaded(data)) = cache.tiles.get(&coord) {
-         // Sample height
-         let lat_base = coord.lat as f64;
-         let lon_base = coord.lon as f64;
-         
-         let d_lat = lat - lat_base;
-         let d_lon = lon - lon_base;
-         
-         // SRTM: y is inverted (0 at top, 3600 at bottom) relative to lat
-         // Lat goes 43 -> 44 (Bottom to Top in data? No, usually Top-Left origin)
-         // Wait, SRTM HGT: row 0 is North (Highest Lat), row 3600 is South.
-         // In our systems.rs/mesh logic: 
-         // let y = yi * step;
-         // let v_lat = (tile_lat_base + 1.0) - (y as f64 / 3600.0);
-         
-         // So: y_index = (1.0 - (lat - lat_base)) * 3600.0
-         let y_pct = 1.0 - d_lat;
-         let x_pct = d_lon;
-         
-         let pixel_x = (x_pct * 3600.0) as f32;
-         let pixel_y = (y_pct * 3600.0) as f32;
-         
-         if let Some(h) = data.get_height(pixel_x as usize, pixel_y as usize) {
-             for mut transform in query.iter_mut() {
+        let lat = radar.position.x;
+        let lon = radar.position.y;
+        
+        // Check if we have data for this location
+        let coord = crate::tile::TileCoord::from_world_coords(lat, lon);
+        
+        if let Some(crate::tile::TileState::Loaded(data)) = cache.tiles.get(&coord) {
+             // Sample height
+             let lat_base = coord.lat as f64;
+             let lon_base = coord.lon as f64;
+             
+             let d_lat = lat - lat_base;
+             let d_lon = lon - lon_base;
+             
+             // Y = (1.0 - d_lat) * 3600.0
+             let y_pct = 1.0 - d_lat;
+             let x_pct = d_lon;
+             
+             let pixel_x = (x_pct * 3600.0) as f32;
+             let pixel_y = (y_pct * 3600.0) as f32;
+             
+             if let Some(h) = data.get_height(pixel_x as usize, pixel_y as usize) {
                  let terrain_height = h as f32; // Scale 1.0
-                 // Update Y to match terrain + offset
-                 // Smooth lerp or instant snap? Instant is fine for static radar.
                  
-                 // Only update if significantly different (to allow manual offset override if needed, but we force it here)
+                 // Only update if significantly different
                  if (transform.translation.y - terrain_height).abs() > 10.0 {
                       transform.translation.y = terrain_height + 50.0; // Place on top
                  }
              }
-         }
+        }
     }
 }

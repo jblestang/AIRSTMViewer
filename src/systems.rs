@@ -103,7 +103,7 @@ pub fn mesh_update_system(
     lod_manager: Res<LodManager>,
     tile_query: Query<(Entity, &TerrainTile)>,
     task_query: Query<&MeshGenTask>,
-    radar: Res<crate::radar::Radar>,
+    radars: Res<crate::radar::Radars>,
     regen_query: Query<Entity, With<NeedsRegen>>,
     camera_query: Query<&Transform, With<Camera>>,
 ) {
@@ -185,15 +185,16 @@ pub fn mesh_update_system(
                 // Spawn Mesh Generation Task
                 let thread_pool = AsyncComputeTaskPool::get();
                 
+
                 let coord = *coord;
                 let data = data_arc.clone();
                 let colormap = colormap.clone();
-                let radar = radar.clone();
+                let radars = radars.clone();
                 let cache_snapshot = snapshot.as_ref().unwrap().clone();
                 
                 let task = thread_pool.spawn(async move {
                     let builder = TerrainMeshBuilder::new(lod_level);
-                    builder.build_mesh(&data, &colormap, Some(&radar), Some(cache_snapshot.as_ref()))
+                    builder.build_mesh(&data, &colormap, Some(&radars), Some(cache_snapshot.as_ref()))
                 });
 
                 commands.spawn(MeshGenTask { task, coord });
@@ -224,7 +225,7 @@ fn spawn_tile_entity(
     materials: &mut Assets<StandardMaterial>,
     colormap: &ColorMap,
     lod_manager: &LodManager,
-    radar: Option<&crate::radar::Radar>,
+    radars: Option<&crate::radar::Radars>,
     cache: Option<&TileCache>,
     coord: TileCoord,
     tile_data: Option<&crate::tile::TileData>,
@@ -236,7 +237,7 @@ fn spawn_tile_entity(
     let snapshot = cache.map(|c| c.get_snapshot());
     
     let mesh = if let Some(data) = tile_data {
-        builder.build_mesh(data, colormap, radar, snapshot.as_ref())
+        builder.build_mesh(data, colormap, radars, snapshot.as_ref())
     } else {
         builder.build_missing_mesh()
     };

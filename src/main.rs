@@ -27,7 +27,7 @@ fn main() {
         .init_resource::<colormap::ColorMap>()
         .init_resource::<downloader::TileDownloader>()
         .init_resource::<lod::LodManager>()
-        .init_resource::<radar::Radar>()
+        .init_resource::<radar::Radars>()
         // Startup systems
         .add_systems(Startup, (
             setup_scene,

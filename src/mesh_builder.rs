@@ -36,7 +36,7 @@ impl TerrainMeshBuilder {
     }
 
     /// Build a mesh for a given tile
-    pub fn build_mesh(&self, tile: &TileData, colormap: &ColorMap, radar: Option<&crate::radar::Radar>, cache_snapshot: Option<&HashMap<TileCoord, Arc<TileData>>>) -> Mesh {
+    pub fn build_mesh(&self, tile: &TileData, colormap: &ColorMap, radars: Option<&crate::radar::Radars>, cache_snapshot: Option<&HashMap<TileCoord, Arc<TileData>>>) -> Mesh {
         let step = self.lod_level;
         let size = tile.size;
         
@@ -91,23 +91,32 @@ impl TerrainMeshBuilder {
                 // Determine color
                 let mut final_color_rgba = [1.0, 1.0, 1.0, 1.0];
                 
-                if let Some(r) = radar {
-                    // Re-calculate lat/lon per vertex
-                    let v_lat = (tile_lat_base + 1.0) - (y as f64 / max_coord as f64);
-                    let v_lon = tile_lon_base + (x as f64 / max_coord as f64);
-                    
-                    let visible = if let Some(c) = cache_snapshot {
-                        r.is_visible_raycast(v_lat, v_lon, height as f32, c)
-                    } else {
-                        r.is_visible(v_lat, v_lon, height as f32)
-                    };
+                if let Some(rds) = radars {
+                    if let Some(snap) = cache_snapshot {
+                        // Re-calculate lat/lon per vertex
+                        let v_lat = (tile_lat_base + 1.0) - (y as f64 / max_coord as f64);
+                        let v_lon = tile_lon_base + (x as f64 / max_coord as f64);
+                        
+                        let (visible, color) = rds.check_visibility(v_lat, v_lon, height as f32, snap);
 
-                    if visible {
-                         // Green for visible
-                        final_color_rgba = [0.0, 1.0, 0.0, 0.3];
+                        if visible {
+                            // Use radar color if visible, with user-defined transparency
+                             if let Some(c) = color {
+                                let srgba = c.to_srgba();
+                                final_color_rgba = [srgba.red, srgba.green, srgba.blue, 0.3]; // Use standard transparency
+                             } else {
+                                final_color_rgba = [0.0, 1.0, 0.0, 0.3]; // Fallback Green
+                             }
+                        } else {
+                            // Red for hidden (keep previous transparency edit if desired, or standardize)
+                            final_color_rgba = [1.0, 0.0, 0.0, 0.1]; // User recently set this to 0.1
+                        }
                     } else {
-                        // Red for hidden
-                        final_color_rgba = [1.0, 0.0, 0.0, 0.3];
+                         // Fallback without snapshot? Or just skip
+                         // If no snapshot, we can't do accurate visibility.
+                         // Maybe simple LOS check? But check_visibility requires snapshot for raycast.
+                         let c = colormap.get_color(height).to_srgba();
+                         final_color_rgba = [c.red, c.green, c.blue, c.alpha];
                     }
                 } else {
                      // Fallback to colormap if no radar

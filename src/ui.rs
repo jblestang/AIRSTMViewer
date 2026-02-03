@@ -29,7 +29,7 @@ pub fn update_mouse_coordinates_system(
     window_query: Query<&Window, With<PrimaryWindow>>,
     camera_query: Query<(&Camera, &GlobalTransform)>,
     cache: Res<TileCache>,
-    radar: Res<crate::radar::Radar>,
+    radars: Res<crate::radar::Radars>,
     mut text_query: Query<&mut Text, With<MouseCoordinatesText>>,
 ) {
     let (camera, camera_transform) = camera_query.single().expect("Primary camera not found");
@@ -97,30 +97,43 @@ pub fn update_mouse_coordinates_system(
                                  // HIT!
                                  // Refine intersection? (Binary search could be added here)
                                  
-                                 // Calculate distance to Radar
-                                 let radar_dist_nm = if radar.enabled {
-                                    // Haversine distance
-                                    let r_earth = 6_371_000.0;
-                                    let d_lat = (lat as f64 - radar.position.x).to_radians();
-                                    let d_lon = (lon as f64 - radar.position.y).to_radians();
-                                    let lat1 = radar.position.x.to_radians();
-                                    let lat2 = (lat as f64).to_radians();
+                                 // Calculate distance to Nearest Radar
+                                 let mut min_dist_nm = f64::MAX;
+                                 let mut nearest_name = "None";
 
-                                    let a = (d_lat / 2.0).sin().powi(2)
-                                        + lat1.cos() * lat2.cos() * (d_lon / 2.0).sin().powi(2);
-                                    let c = 2.0 * a.sqrt().asin();
-                                    let dist_m = r_earth * c;
-                                    
-                                    dist_m / 1852.0 // Convert to NM
+                                 for radar in &radars.stations {
+                                     if !radar.enabled { continue; }
+                                     
+                                     // Haversine distance
+                                     let r_earth = 6_371_000.0;
+                                     let d_lat = (lat as f64 - radar.position.x).to_radians();
+                                     let d_lon = (lon as f64 - radar.position.y).to_radians();
+                                     let lat1 = radar.position.x.to_radians();
+                                     let lat2 = (lat as f64).to_radians();
+
+                                     let a = (d_lat / 2.0).sin().powi(2)
+                                         + lat1.cos() * lat2.cos() * (d_lon / 2.0).sin().powi(2);
+                                     let c = 2.0 * a.sqrt().asin();
+                                     let dist_m = r_earth * c;
+                                     let dist_nm = dist_m / 1852.0;
+
+                                     if dist_nm < min_dist_nm {
+                                         min_dist_nm = dist_nm;
+                                         nearest_name = &radar.name;
+                                     }
+                                 }
+                                 
+                                 let dist_display = if min_dist_nm < f64::MAX {
+                                     format!("{}: {:.1} NM", nearest_name, min_dist_nm)
                                  } else {
-                                     0.0
+                                     "Dist: --".to_string()
                                  };
 
                                  // Update Text
                                  for mut text in text_query.iter_mut() {
                                      text.0 = format!(
-                                         "Lat: {:.5}\nLon: {:.5}\nAlt: {}m\nDist: {:.1} NM", 
-                                         lat, lon, h, radar_dist_nm
+                                         "Lat: {:.5}\nLon: {:.5}\nAlt: {}m\n{}", 
+                                         lat, lon, h, dist_display
                                      );
                                  }
                                  return;
