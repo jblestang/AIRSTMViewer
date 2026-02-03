@@ -36,6 +36,13 @@ impl Default for Radars {
                     max_range: 515_000.0,
                     color: Color::srgb(1.0, 0.0, 1.0), // Magenta
                 },
+                Radar {
+                    name: "Lyon (Mont Verdun)".to_string(),
+                    position: DVec3::new(45.8498, 4.7795, 626.0),
+                    enabled: true,
+                    max_range: 515_000.0,
+                    color: Color::srgb(1.0, 1.0, 0.0), // Yellow
+                },
             ],
         }
     }
