@@ -40,8 +40,11 @@ pub fn tile_loader_system(
     let cam_pos = camera_transform.translation;
     
     // Calculate tile coordinate from camera position
-    // North = -Z. So Z = -(lat+1) * size.
-    // lat+1 = -Z/size. lat = -Z/size - 1.
+    // COORDINATE MAPPING:
+    // World space Z corresponds to negative Latitude (North is negative Z).
+    // The SRTM tile naming convention (e.g., N43) refers to the bottom-left corner.
+    // However, our world space origin 0,0 is N0E0.
+    // So: Lat_idx = ceil(-Z / 3601) - 1.
     let tile_size = 3601.0;
     let lat_idx = (-cam_pos.z / tile_size).ceil() as i32 - 1;
     let center_coord = TileCoord::new(
@@ -161,14 +164,15 @@ pub fn mesh_update_system(
                 let distance = camera_pos.distance(tile_center);
                 let lod_level = lod_manager.calculate_lod(distance);
 
-                // Frustum Culling / Directional Priority
-                // Only generate meshes if looking roughly towards them
+                // ALGORITHM: Frustum Culling (Approximate)
+                // Instead of full AABB frustum checks, we use a simple Dot Product check.
+                // 1. Calculate vector from Camera to Tile Center.
+                // 2. Calculate Camera Forward vector.
+                // 3. Dot Product > Threshold implies the tile is roughly "in front" of the camera.
+                // Threshold 0.2 approx corresponds to a wide FOV (allowing peripherals to load).
                 let cam_forward = camera_transform.forward();
                 let dir_to_tile = (tile_center - camera_pos).normalize_or_zero();
                 
-                // dot > 0.0 means in front (90 deg). 
-                // dot > 0.5 means within 60 deg cone.
-                // We use 0.2 to be generous but lenient on peripherals
                 let is_visible = cam_forward.dot(dir_to_tile) > 0.2;
 
                 // Exception: Always generate very close tiles regardless of direction (for rotating)

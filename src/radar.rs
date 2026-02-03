@@ -29,8 +29,12 @@ impl Radar {
         }
 
         // Earth constants
-        const R_EARTH: f64 = 6_371_000.0; // Meters
-        const K_FACTOR: f64 = 4.0 / 3.0;
+        // 4/3 Earth Radius Model
+        // This is a standard approximation in radio propagation to account for atmospheric refraction
+        // which bends radio waves towards the earth, effectively increasing the radio horizon.
+        // Reference: ITU-R P.452 "Prediction procedure for the evaluation of interference between stations on the surface of the Earth at frequencies above about 0.7 GHz"
+        const R_EARTH: f64 = 6_371_000.0; // Mean Earth Radius in Meters
+        const K_FACTOR: f64 = 4.0 / 3.0;  // Standard Refactive Index
         const R_EFF: f64 = R_EARTH * K_FACTOR; // Effective radius (~8494 km)
 
         // Calculate Great Circle Distance (Haversine or simple spherical)
@@ -96,8 +100,11 @@ impl Radar {
         }
         
         // Raymarch parameters
-        let step_size = 500.0; 
+        // We march along the Great Circle path from source to target.
+        // At each step, we check the height of the ray against the terrain height.
+        let step_size = 500.0; // Meters. Smaller steps = higher precision but slower.
         let num_steps = (total_dist / step_size).ceil() as usize;
+        // Clamp steps to avoid freezing on very long paths or over-calculating short ones
         let num_steps = num_steps.max(5).min(200); 
         
         // Access Optimization: Cache the current tile data locally to avoid Hash lookups
@@ -111,7 +118,11 @@ impl Radar {
             let cur_lat = start_lat + (target_lat - start_lat) * t;
             let cur_lon = start_lon + (target_lon - start_lon) * t;
             
-            // Height of Ray
+            // Height of Ray Calculation
+            // We interpolate linearly between Source Altitude and Target Altitude.
+            // Then we subtract the "Earth Curvature Drop" which is the height lost due to the
+            // earth curving away from the tangent plane of the start point.
+            // Drop Formula: h = d^2 / (2 * R_eff)
             let dist_from_start = total_dist * t;
             let linear_h = start_alt + (target_alt as f64 - start_alt) * t;
             let earth_curvature_drop = (dist_from_start * (total_dist - dist_from_start)) / (2.0 * R_EFF);

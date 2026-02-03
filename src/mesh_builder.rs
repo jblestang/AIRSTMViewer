@@ -59,7 +59,13 @@ impl TerrainMeshBuilder {
         
         // Generate vertices in parallel using Rayon
         // Generate vertices in parallel using Rayon (Outer loop only to reduce overhead)
-        // We flatten the coordinate space to a single vector of indices to ensure load balancing
+        // ALGORITHM: Parallel Grid Generation
+        // Instead of nested loops (y, x) which are hard to parallelize efficiently,
+        // we flatten the 2D grid into a 1D index space (0..total_vertices).
+        // Each index `i` is then mapped back to (x, y) coordinates:
+        //   y = i / width
+        //   x = i % width
+        // This allows Rayon to split the workload evenly across all available CPU cores.
         let total_vertices = vertices_per_row * vertices_per_row;
         
         use rayon::prelude::*;
@@ -131,7 +137,13 @@ impl TerrainMeshBuilder {
                 let i2 = i0 + vertices_per_row;
                 // let i3 = i2 + 1; 
                 
-                // Optimized Wireframe: Top, Left, Diagonal
+                // Optimized Wireframe Topology:
+                // For each cell (square), we draw 3 lines to form the triangles:
+                // 1. Top Edge (i0 -> i1)
+                // 2. Left Edge (i0 -> i2)
+                // 3. Diagonal (i1 -> i2) - giving the "triangulated" look
+                // Right and Bottom edges are handled by the next neighbor's Left/Top, 
+                // except for the last row/column which are handled explicitly below.
                 indices.push(i0 as u32); indices.push(i1 as u32); // Top (i0-i1)
                 indices.push(i0 as u32); indices.push(i2 as u32); // Left (i0-i2)
                 indices.push(i1 as u32); indices.push(i2 as u32); // Diagonal (i1-i2)

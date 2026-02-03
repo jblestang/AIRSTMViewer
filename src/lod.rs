@@ -21,11 +21,15 @@ impl LodManager {
     /// Calculate LOD level based on camera distance/zoom
     /// Calculate LOD level based on camera distance/zoom
     pub fn calculate_lod(&self, camera_distance: f32) -> usize {
-        // Tile size is approx 3601.0 units.
-        // We generally want divisors of 3600 to avoid edge gaps.
-        // LOD 8  = 3600/8 = 450 grid => 200k verts
-        // LOD 20 = 3600/20 = 180 grid => 32k verts
-        // LOD 40 = 3600/40 = 90 grid  => 8k verts
+        // ALGORITHM: Discrete Level of Detail
+        // We select a "step size" (stride) for the mesh grid based on distance.
+        // The step size MUST be a divisor of (size-1) i.e. 3600 to ensure the
+        // edges of the tile align perfectly with neighbors without T-junctions or gaps.
+        // Valid divisors of 3600: 1, 2, 3, 4, 5, 6, 8, 9, 10, 12, 15, 16, 18, 20...
+        // 
+        // LOD 8  = 3600/8 = 450 grid => 202,500 verts (High)
+        // LOD 20 = 3600/20 = 180 grid => 32,400 verts (Medium)
+        // LOD 40 = 3600/40 = 90 grid  => 8,100 verts (Low)
         
         // Thresholds based on Tile Size (3600)
         if camera_distance < 5000.0 {

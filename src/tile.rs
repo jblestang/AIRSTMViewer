@@ -69,6 +69,11 @@ pub enum TileState {
 
 /// SRTM tile elevation data
 /// Standard SRTM 1 arc-second tiles are 3601x3601 samples
+/// DATA FORMAT:
+/// - 16-bit signed integers (i16)
+/// - Big-endian byte order
+/// - Height in meters relative to WGS84 EGM96 geoid
+/// - Void data (unknown) is typically -32768
 #[derive(Debug, Clone, PartialEq)]
 pub struct TileData {
     pub coord: TileCoord,
@@ -115,15 +120,20 @@ impl TileData {
         let fx = x - x0 as f32;
         let fy = y - y0 as f32;
         
-        // Bilinear interpolation
+        // ALGORITHM: Bilinear Interpolation
+        // We calculate the exact height at a sub-pixel position (nx, ny)
+        // by weighting the 4 surrounding pixels.
+        // Formula: f(x,y) = f(0,0)(1-x)(1-y) + f(1,0)x(1-y) + f(0,1)(1-x)y + f(1,1)xy
         let h00 = self.get_height(x0, y0).unwrap_or(0) as f32;
         let h10 = self.get_height(x1, y0).unwrap_or(0) as f32;
         let h01 = self.get_height(x0, y1).unwrap_or(0) as f32;
         let h11 = self.get_height(x1, y1).unwrap_or(0) as f32;
         
+        // Linear interpolate X (Top and Bottom rows)
         let h0 = h00 * (1.0 - fx) + h10 * fx;
         let h1 = h01 * (1.0 - fx) + h11 * fx;
         
+        // Linear interpolate Y
         h0 * (1.0 - fy) + h1 * fy
     }
 

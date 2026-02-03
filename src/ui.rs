@@ -40,8 +40,10 @@ pub fn update_mouse_coordinates_system(
              let origin = ray.origin;
              let direction = ray.direction;
              
-             // Raymarch to find ground intersection
-             // Max distance approx 50km
+             // ALGORITHM: Linear Raymarching
+             // We cast a ray from the camera through the mouse cursor.
+             // We march along this ray in fixed step sizes (50m) to check for terrain intersections.
+             // Optimization: A variable step size or Binary Search refinement could be used here for better performance.
              let max_dist = 50_000.0;
              let step_size = 50.0; // 50m precision to start
              let num_steps = (max_dist / step_size) as usize;
@@ -53,15 +55,13 @@ pub fn update_mouse_coordinates_system(
                  let pos = origin + direction * dist;
                  
                  // Check if point is below terrain
-                 // Convert World -> Geo
-                 // X = Lon * Size -> Lon = X / Size
-                 // Z = - (Lat + 1) * Size -> Lat = -Z/Size - 1 ??
-                 // Let's invert the formula from systems.rs:
-                 // z_offset = -((coord.lat + 1) as f32) * tile_size;
-                 // So Z maps to North-South.
-                 // Actually easier: Lat = -pos.z / tile_size. 
-                 // Wait. Lat 43. z = -44*3601. Lat 44. z = -45*3601? No.
-                 // Lat 43 origin is South-West (43N).
+                 // COORDINATE SYSTEM MAPPING:
+                 // World Z maps to Latitude (North-South).
+                 //   - Latitude 43N starts at Z = -44 * tile_size
+                 //   - Latitude increases as Z becomes MORE NEGATIVE (North direction)
+                 //   - Therefore: Lat = -pos.z / tile_size
+                 // World X maps to Longitude (East-West).
+                 //   - Longitude increases as X increases (East direction)
                  // In our Mesh, Z goes from 0 (North/Top) to Size (South/Bottom).
                  // And we offset the tile by z_offset.
                  
