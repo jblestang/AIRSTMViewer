@@ -97,7 +97,7 @@ pub fn tile_loader_system(
             // Request download
             cache.mark_loading(coord);
             downloader.request_download(coord);
-            info!("Requesting download for tile: {:?}", coord);
+            //info!("Requesting download for tile: {:?}", coord);
         }
     }
 }

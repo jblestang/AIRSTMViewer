@@ -7,8 +7,13 @@ pub struct Radar {
     pub name: String,
     pub position: DVec3, // Lat (deg), Lon (deg), Alt (meters)
     pub enabled: bool,
-    pub max_range: f32, // Max range in meters
     pub color: Color,
+    
+    // Physics Parameters
+    pub frequency: f64,       // Hz (e.g. 1.3e9 for 1.3 GHz)
+    pub transmit_power_dbm: f64, // dBm (e.g. 60.0 for 1kW)
+    pub gain_dbi: f64,        // dBi (e.g. 30.0)
+    pub sensitivity_dbm: f64, // dBm (e.g. -100.0)
 }
 
 /// Resource holding all radar stations
@@ -25,23 +30,31 @@ impl Default for Radars {
                     name: "Mont Agel".to_string(),
                     position: DVec3::new(43.77528, 7.42639, 1248.0), 
                     enabled: true,
-                    max_range: 515_000.0,
                     color: Color::srgb(0.0, 1.0, 1.0), // Cyan
+                    frequency: 1.3e9, // 1.3 GHz (L-Band)
+                    transmit_power_dbm: 80.0, // 100 kW (Typical En-Route Peak)
+                    gain_dbi: 35.0, // High gain antenna
+                    sensitivity_dbm: -113.0, // High sensitivity
                 },
                 Radar {
                     name: "Sainte-Baume".to_string(),
-                    // Jouc de l'Aigle coordinates
                     position: DVec3::new(43.3337, 5.7866, 1148.0),
                     enabled: true,
-                    max_range: 515_000.0,
                     color: Color::srgb(1.0, 0.0, 1.0), // Magenta
+                    frequency: 1.3e9,
+                    transmit_power_dbm: 80.0,
+                    gain_dbi: 35.0,
+                    sensitivity_dbm: -113.0,
                 },
                 Radar {
                     name: "Lyon (Mont Verdun)".to_string(),
                     position: DVec3::new(45.8498, 4.7795, 626.0),
                     enabled: true,
-                    max_range: 515_000.0,
                     color: Color::srgb(1.0, 1.0, 0.0), // Yellow
+                    frequency: 1.3e9,
+                    transmit_power_dbm: 80.0,
+                    gain_dbi: 35.0,
+                    sensitivity_dbm: -113.0,
                 },
             ],
         }
@@ -69,23 +82,50 @@ impl Radars {
 }
 
 impl Radar {
+    /// Calculate Maximum Detection Range using the Radar Range Equation
+    /// Returns range in meters
+    pub fn calculate_max_range(&self) -> f64 {
+        const SPEED_OF_LIGHT: f64 = 299_792_458.0;
+        const BOLTZMANN: f64 = 1.380649e-23;
+        const REF_TEMP: f64 = 290.0;
+        const DEFAULT_RCS: f64 = 5.0; // 5 m^2 (Typical fighter/small aircraft)
+
+        // Convert decibels to linear units
+        let p_t = 10.0_f64.powf((self.transmit_power_dbm - 30.0) / 10.0); // Watts
+        let g = 10.0_f64.powf(self.gain_dbi / 10.0); // Linear Gain
+        let p_min = 10.0_f64.powf((self.sensitivity_dbm - 30.0) / 10.0); // Watts
+
+        let lambda = SPEED_OF_LIGHT / self.frequency;
+
+        // Radar Range Equation:
+        // R_max = [ (P_t * G^2 * lambda^2 * sigma) / ((4*pi)^3 * P_min) ] ^ (1/4)
+        
+        let numerator = p_t * g * g * lambda * lambda * DEFAULT_RCS;
+        let denominator = (4.0 * std::f64::consts::PI).powi(3) * p_min;
+        
+        if denominator == 0.0 {
+            return 0.0;
+        }
+
+        (numerator / denominator).powf(0.25)
+    }
+
     /// Calculate if a target point is within Radio Line of Sight (LOS)
-    /// Uses 4/3 Earth Radius approximation
+    /// Uses 4/3 Earth Radius approximation AND Physics-based Range Check
     pub fn is_visible(&self, target_lat: f64, target_lon: f64, target_alt: f32) -> bool {
         if !self.enabled {
             return false;
         }
 
+        // Check against Physics Calculated Max Range first
+        let max_physics_range = self.calculate_max_range();
+
         // Earth constants
         // 4/3 Earth Radius Model
-        // This is a standard approximation in radio propagation to account for atmospheric refraction
-        // which bends radio waves towards the earth, effectively increasing the radio horizon.
-        // Reference: ITU-R P.452 "Prediction procedure for the evaluation of interference between stations on the surface of the Earth at frequencies above about 0.7 GHz"
         const R_EARTH: f64 = 6_371_000.0; // Mean Earth Radius in Meters
-        const K_FACTOR: f64 = 4.0 / 3.0;  // Standard Refactive Index
-        const R_EFF: f64 = R_EARTH * K_FACTOR; // Effective radius (~8494 km)
+        const R_EFF: f64 = R_EARTH * (4.0/3.0); // Effective radius
 
-        // Calculate Great Circle Distance (Haversine or simple spherical)
+        // Calculate Great Circle Distance
         let d_lat = (target_lat - self.position.x).to_radians();
         let d_lon = (target_lon - self.position.y).to_radians();
         let lat1 = self.position.x.to_radians();
@@ -96,11 +136,12 @@ impl Radar {
         let c = 2.0 * a.sqrt().asin();
         let dist = R_EARTH * c; // Surface distance
 
-        if dist > self.max_range as f64 {
-            return false;
+        // 1. Physics Range Check
+        if dist > max_physics_range {
+            return false; 
         }
 
-        // Radio Horizon formula (Geometric check without terrain)
+        // 2. Radio Horizon Check (Geometric)
         let h_radar = self.position.z.max(0.0);
         let h_target = target_alt.max(0.0) as f64;
 
@@ -232,6 +273,10 @@ pub fn setup_radar_marker(
         if !radar.enabled {
             continue;
         }
+
+        let max_range_km = radar.calculate_max_range() / 1000.0;
+        info!("Radar '{}' Physics Range: {:.1} km (Power: {:.1} dBm, Gain: {:.1} dBi)", 
+              radar.name, max_range_km, radar.transmit_power_dbm, radar.gain_dbi);
 
         let x = radar.position.y as f32 * tile_size;
         let z = -(radar.position.x as f32) * tile_size; 

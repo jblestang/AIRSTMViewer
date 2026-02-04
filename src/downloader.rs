@@ -84,7 +84,7 @@ impl TileDownloader {
         // Attempt to download (this is a placeholder - real implementation would use reqwest)
         // For now, we'll just return Missing for tiles that don't exist locally
         
-        info!("Attempting to download tile: {}", filename);
+        //info!("Attempting to download tile: {}", filename);
         
         // Simulate download failure (in real implementation, use reqwest to fetch)
         // You would need to implement proper URL construction and HTTP requests here
@@ -120,7 +120,7 @@ pub fn process_downloads(
                 cache.insert_tile(tile_data.coord, TileState::Loaded(std::sync::Arc::new(tile_data)));
             }
             DownloadResult::Missing(coord) => {
-                warn!("Tile not found: {:?}", coord);
+                //warn!("Tile not found: {:?}", coord);
                 cache.insert_tile(coord, TileState::Missing);
             }
             DownloadResult::Error(coord, err) => {
