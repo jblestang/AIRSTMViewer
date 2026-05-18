@@ -8,6 +8,28 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use crate::tile::TileCoord;
 
+/// Raw vertex data produced by the mesh builder.
+/// Stored in MeshCache so identical (coord, lod, radar_params) combinations never
+/// trigger a second raycasting pass; call `to_mesh()` to obtain a ready-to-use Bevy Mesh.
+#[derive(Clone)]
+pub struct CachedMeshData {
+    pub positions: Vec<[f32; 3]>,
+    pub colors:    Vec<[f32; 4]>,
+    pub normals:   Vec<[f32; 3]>,
+    pub indices:   Vec<u32>,
+}
+
+impl CachedMeshData {
+    pub fn to_mesh(&self) -> Mesh {
+        let mut mesh = Mesh::new(PrimitiveTopology::LineList, Default::default());
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, self.positions.clone());
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL,   self.normals.clone());
+        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR,    self.colors.clone());
+        mesh.insert_indices(Indices::U32(self.indices.clone()));
+        mesh
+    }
+}
+
 /// Build a terrain mesh from tile data
 pub struct TerrainMeshBuilder {
     pub lod_level: usize,  // Level of detail (1 = full res, 2 = half res, etc.)
@@ -35,14 +57,21 @@ impl TerrainMeshBuilder {
         }
     }
 
-    /// Build a mesh for a given tile
-    pub fn build_mesh(&self, tile: &TileData, colormap: &ColorMap, radars: Option<&crate::radar::Radars>, cache_snapshot: Option<&HashMap<TileCoord, Arc<TileData>>>) -> Mesh {
+    /// Build mesh data for a given tile. Returns `CachedMeshData` which can be stored
+    /// in `MeshCache` and cheaply converted to a `Mesh` via `.to_mesh()`.
+    pub fn build_mesh(
+        &self, 
+        tile: &TileData, 
+        colormap: &ColorMap, 
+        radars: Option<&crate::radar::Radars>, 
+        cache_snapshot: Option<&HashMap<TileCoord, Arc<TileData>>>,
+        relevant_radars: Option<&[usize]>,
+    ) -> CachedMeshData {
         let step = self.lod_level;
         let size = tile.size;
         
         // Calculate number of vertices (excluding last row/column)
         let max_coord = size - 1;
-        let grid_size = (max_coord - 1) / step + 1;
         
         // We need to generate vertices up to max_coord inclusive
         let vertices_per_row = max_coord / step + 1;
@@ -68,6 +97,19 @@ impl TerrainMeshBuilder {
         // This allows Rayon to split the workload evenly across all available CPU cores.
         let total_vertices = vertices_per_row * vertices_per_row;
         
+        // Precompute max detection range for every relevant radar — O(N_radars) work done
+        // here rather than inside the per-vertex hot loop.
+        // Previously calculate_max_range() (3× f64::powf ≈ 300 ns each) was called once
+        // per vertex per radar: 8 281 vertices × N_radars = millions of powf calls per tile.
+        let radar_ranges: Option<Vec<(usize, f64)>> = match (radars, relevant_radars) {
+            (Some(rds), Some(indices)) => Some(
+                indices.iter().map(|&idx| {
+                    (idx, rds.stations[idx].calculate_max_range(rds.target_rcs))
+                }).collect()
+            ),
+            _ => None,
+        };
+
         use rayon::prelude::*;
         
         let vertices: Vec<( [f32; 3], [f32; 4] )> = (0..total_vertices)
@@ -89,37 +131,53 @@ impl TerrainMeshBuilder {
                 let position = [px, py, pz];
                 
                 // Determine color
-                let mut final_color_rgba = [1.0, 1.0, 1.0, 1.0];
+                let final_color_rgba;
                 
                 if let Some(rds) = radars {
                     if let Some(snap) = cache_snapshot {
-                        // Re-calculate lat/lon per vertex
                         let v_lat = (tile_lat_base + 1.0) - (y as f64 / max_coord as f64);
                         let v_lon = tile_lon_base + (x as f64 / max_coord as f64);
+                        let check_alt = height as f32 + rds.target_altitude_agl;
                         
-                        let (visible, color) = rds.check_visibility(v_lat, v_lon, height as f32, snap);
+                        let mut visible = false;
+                        let mut color = None;
+                        
+                        if let Some(ranges) = &radar_ranges {
+                            // Fast path: precomputed max_range avoids powf per vertex.
+                            // Haversine is also computed only once inside precomputed variant
+                            // (the old code computed it twice: in is_visible + is_visible_raycast).
+                            for &(idx, max_range) in ranges {
+                                if let Some(radar) = rds.stations.get(idx) {
+                                    if radar.is_visible_raycast_precomputed(
+                                        v_lat, v_lon, check_alt, max_range, snap,
+                                    ) {
+                                        visible = true;
+                                        color = Some(radar.color);
+                                        break;
+                                    }
+                                }
+                            }
+                        } else {
+                            let (v, c) = rds.check_visibility(v_lat, v_lon, check_alt, snap);
+                            visible = v;
+                            color = c;
+                        }
 
                         if visible {
-                            // Use radar color if visible, with user-defined transparency
                              if let Some(c) = color {
                                 let srgba = c.to_srgba();
-                                final_color_rgba = [srgba.red, srgba.green, srgba.blue, 0.3]; // Use standard transparency
+                                final_color_rgba = [srgba.red, srgba.green, srgba.blue, 0.3];
                              } else {
-                                final_color_rgba = [0.0, 1.0, 0.0, 0.3]; // Fallback Green
+                                final_color_rgba = [0.0, 1.0, 0.0, 0.3];
                              }
                         } else {
-                            // Red for hidden (keep previous transparency edit if desired, or standardize)
-                            final_color_rgba = [1.0, 0.0, 0.0, 0.1]; // User recently set this to 0.1
+                            final_color_rgba = [1.0, 0.0, 0.0, 0.1];
                         }
                     } else {
-                         // Fallback without snapshot? Or just skip
-                         // If no snapshot, we can't do accurate visibility.
-                         // Maybe simple LOS check? But check_visibility requires snapshot for raycast.
                          let c = colormap.get_color(height).to_srgba();
                          final_color_rgba = [c.red, c.green, c.blue, c.alpha];
                     }
                 } else {
-                     // Fallback to colormap if no radar
                     let c = colormap.get_color(height).to_srgba();
                     final_color_rgba = [c.red, c.green, c.blue, c.alpha];
                 }
@@ -171,24 +229,16 @@ impl TerrainMeshBuilder {
             }
         }
         
-        // Dummy normals for wireframe (Unlit material doesn't use them, but shader expects attribute)
         let normals = vec![[0.0, 1.0, 0.0]; positions.len()];
-        
-        // Build mesh as LineList for wireframe
-        let mut mesh = Mesh::new(PrimitiveTopology::LineList, Default::default());
-        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
-        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
-        mesh.insert_indices(Indices::U32(indices));
-        
-        mesh
+
+        CachedMeshData { positions, colors, normals, indices }
     }
 
     /// Build a placeholder mesh for missing tiles (red at height 0)
-    pub fn build_missing_mesh(&self) -> Mesh {
+    pub fn build_missing_mesh(&self) -> CachedMeshData {
         let size = 100; // Simple low-res grid for missing tiles
         let step = self.lod_level.max(10);
-        let grid_size = size / step + 1;
+        let _grid_size = size / step + 1;
         
         let mut positions = Vec::new();
         let mut colors = Vec::new();
@@ -234,14 +284,8 @@ impl TerrainMeshBuilder {
         }
         
         let normals = vec![[0.0, 1.0, 0.0]; positions.len()];
-        
-        let mut mesh = Mesh::new(PrimitiveTopology::LineList, Default::default());
-        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
-        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
-        mesh.insert_indices(Indices::U32(indices));
-        
-        mesh
+
+        CachedMeshData { positions, colors, normals, indices }
     }
 
     /// Calculate normals for the mesh

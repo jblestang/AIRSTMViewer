@@ -17,6 +17,7 @@ impl Default for LodManager {
     }
 }
 
+#[allow(dead_code)]
 impl LodManager {
     /// Calculate LOD level based on camera distance/zoom
     /// Calculate LOD level based on camera distance/zoom

@@ -6,6 +6,9 @@ use crate::tile::TileCoord;
 #[derive(Component)]
 pub struct MouseCoordinatesText;
 
+#[derive(Component)]
+pub struct ActivityText;
+
 pub fn setup_ui(mut commands: Commands) {
     commands.spawn((
         Text::new("Lat: --\nLon: --\nAlt: --\nDist: --"),
@@ -25,15 +28,35 @@ pub fn setup_ui(mut commands: Commands) {
     ));
 }
 
+pub fn setup_activity_panel(mut commands: Commands) {
+    // Activity Panel (Top Right)
+    commands.spawn((
+        Text::new("Status: Idle"),
+        TextFont {
+            font_size: 16.0,
+            ..default()
+        },
+        TextColor(Color::srgb(0.0, 1.0, 0.0)),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(10.0),
+            right: Val::Px(10.0),
+            padding: UiRect::all(Val::Px(5.0)),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)),
+        ActivityText,
+    ));
+}
+
 pub fn update_mouse_coordinates_system(
-    window_query: Query<&Window, With<PrimaryWindow>>,
-    camera_query: Query<(&Camera, &GlobalTransform)>,
+    window: Single<&Window, With<PrimaryWindow>>,
+    camera: Single<(&Camera, &GlobalTransform)>,
     cache: Res<TileCache>,
     radars: Res<crate::radar::Radars>,
     mut text_query: Query<&mut Text, With<MouseCoordinatesText>>,
 ) {
-    let (camera, camera_transform) = camera_query.single().expect("Primary camera not found");
-    let window = window_query.single().expect("Primary window not found");
+    let (camera, camera_transform) = *camera;
     
     if let Some(cursor_position) = window.cursor_position() {
         if let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_position) {
@@ -132,8 +155,8 @@ pub fn update_mouse_coordinates_system(
                                  // Update Text
                                  for mut text in text_query.iter_mut() {
                                      text.0 = format!(
-                                         "Lat: {:.5}\nLon: {:.5}\nAlt: {}m\n{}", 
-                                         lat, lon, h, dist_display
+                                         "Lat: {:.5}\nLon: {:.5}\nAlt: {}m\n{}\n\nTarget AGL: {:.0}m\nTarget RCS: {:.1}m2", 
+                                         lat, lon, h, dist_display, radars.target_altitude_agl, radars.target_rcs
                                      );
                                  }
                                  return;
@@ -145,8 +168,39 @@ pub fn update_mouse_coordinates_system(
              
              // No hit
              for mut text in text_query.iter_mut() {
-                 text.0 = "Lat: --\nLon: --\nAlt: --\nDist: --".to_string();
+                 text.0 = format!("Lat: --\nLon: --\nAlt: --\nDist: --\n\nTarget AGL: {:.0}m\nTarget RCS: {:.1}m2", radars.target_altitude_agl, radars.target_rcs);
              }
         }
     }
+}
+
+pub fn update_activity_panel(
+    cache: Res<TileCache>,
+    load_tasks: Query<&crate::systems::TileLoadTask>,
+    mesh_tasks: Query<&crate::systems::MeshGenTask>,
+    mut text: Single<&mut Text, With<ActivityText>>,
+) {
+    let loading_in_cache = cache.tiles.values().filter(|s| match s {
+        crate::tile::TileState::Loading => true,
+        _ => false,
+    }).count();
+    
+    let disk_loads = load_tasks.iter().count();
+    let mesh_gens = mesh_tasks.iter().count();
+    
+    // Downloads are those marked Loading but not having a TileLoadTask entity
+    let downloads = if loading_in_cache > disk_loads {
+        loading_in_cache - disk_loads
+    } else {
+        0
+    };
+
+    text.0 = if downloads == 0 && disk_loads == 0 && mesh_gens == 0 {
+         "Status: Idle".to_string()
+    } else {
+         format!(
+            "Background Activity:\n- Downloads: {}\n- Disk Loads: {}\n- Mesh Gens: {}",
+            downloads, disk_loads, mesh_gens
+        )
+    };
 }

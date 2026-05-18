@@ -25,8 +25,8 @@ pub fn camera_flight_system(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse_button: Res<ButtonInput<MouseButton>>,
-    mut mouse_motion: EventReader<MouseMotion>,
-    mut scroll_events: EventReader<MouseWheel>,
+    mut mouse_motion: MessageReader<MouseMotion>,
+    mut scroll_events: MessageReader<MouseWheel>,
     mut query: Query<(&mut Transform, &TerrainCamera)>,
 ) {
     let Ok((mut transform, camera)) = query.single_mut() else {
@@ -50,8 +50,9 @@ pub fn camera_flight_system(
         mouse_motion.clear();
     }
 
-    // Check for Shift key (used for switching between Translation and Zoom/Rotate)
+    // Check for Modifiers
     let shift_pressed = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+    let alt_pressed = keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]);
     
     // Reset Camera (R)
     if keys.just_pressed(KeyCode::KeyR) {
@@ -61,22 +62,57 @@ pub fn camera_flight_system(
         
         *transform = Transform::from_xyz(center_x, 15000.0, center_z + 5000.0)
             .looking_at(Vec3::new(center_x, 0.0, center_z - 5000.0), Vec3::Y);
-        info!("Camera reset to home position");
+        info!("Camera reset to home position (Mont Agel)");
         return;
     }
 
-    // WASD Movement (Standard - Keep as fallback/alternative)
+    // Moscow Teleport (M)
+    if keys.just_pressed(KeyCode::KeyM) {
+        let tile_size = 3601.0;
+        let moscow_lat = 55.7558;
+        let moscow_lon = 37.6173;
+        let center_x = moscow_lon * tile_size;
+        let center_z = -moscow_lat * tile_size;
+        
+        *transform = Transform::from_xyz(center_x as f32, 10000.0, (center_z + 5000.0) as f32)
+            .looking_at(Vec3::new(center_x as f32, 0.0, (center_z - 5000.0) as f32), Vec3::Y);
+        println!(">>> TELEPORTING TO MOSCOW... ({:.4}, {:.4}) <<<", moscow_lat, moscow_lon);
+        return;
+    }
+
+    // WASD / ZQSD Movement (Standard for QWERTY/AZERTY)
     let mut direction = Vec3::ZERO;
     let mut rotation_yaw = 0.0;
     let mut rotation_pitch = 0.0;
     
-    if keys.pressed(KeyCode::KeyW) { direction += transform.forward().as_vec3(); }
-    if keys.pressed(KeyCode::KeyS) { direction -= transform.forward().as_vec3(); }
-    if keys.pressed(KeyCode::KeyA) { direction -= transform.right().as_vec3(); }
-    if keys.pressed(KeyCode::KeyD) { direction += transform.right().as_vec3(); }
+    // Disable translation if rotation (Shift) or radar controls (Alt) are active
+    if !shift_pressed && !alt_pressed {
+        // Forward: W (QWERTY) or Z (AZERTY)
+        if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::KeyZ) { direction += transform.forward().as_vec3(); }
+        // Backward: S
+        if keys.pressed(KeyCode::KeyS) { direction -= transform.forward().as_vec3(); }
+        // Left: A (QWERTY) or Q (AZERTY)
+        if keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::KeyQ) { direction -= transform.right().as_vec3(); }
+        // Right: D
+        if keys.pressed(KeyCode::KeyD) { direction += transform.right().as_vec3(); }
 
-    // Logic for Arrow Keys
-    if shift_pressed {
+        // Up = Translate Up (Altitude +)
+        if keys.pressed(KeyCode::ArrowUp) {
+            direction.y += 1.0;
+        }
+        // Down = Translate Down (Altitude -)
+        if keys.pressed(KeyCode::ArrowDown) {
+            direction.y -= 1.0;
+        }
+        // Left = Translate Left (Strafe)
+        if keys.pressed(KeyCode::ArrowLeft) {
+            direction -= transform.right().as_vec3();
+        }
+        // Right = Translate Right (Strafe)
+        if keys.pressed(KeyCode::ArrowRight) {
+            direction += transform.right().as_vec3();
+        }
+    } else if shift_pressed {
         // Shift + Arrows = View Rotation (Pitch/Yaw)
         
         // Shift + Up = Look Up (Pitch +)
@@ -94,25 +130,6 @@ pub fn camera_flight_system(
         // Shift + Right = Turn Left (Yaw +)
         if keys.pressed(KeyCode::ArrowRight) {
             rotation_yaw += 1.0;
-        }
-    } else {
-        // Plain Arrows = Translate (Screen Plane/Altitude)
-        
-        // Up = Translate Up (Altitude +)
-        if keys.pressed(KeyCode::ArrowUp) {
-            direction.y += 1.0;
-        }
-        // Down = Translate Down (Altitude -)
-        if keys.pressed(KeyCode::ArrowDown) {
-            direction.y -= 1.0;
-        }
-        // Left = Translate Left
-        if keys.pressed(KeyCode::ArrowLeft) {
-            direction -= transform.right().as_vec3();
-        }
-        // Right = Translate Right
-        if keys.pressed(KeyCode::ArrowRight) {
-            direction += transform.right().as_vec3();
         }
     }
 

@@ -9,6 +9,7 @@ pub struct TileCoord {
     pub lon: i32,  // Longitude (west is negative)
 }
 
+#[allow(dead_code)]
 impl TileCoord {
     pub fn new(lat: i32, lon: i32) -> Self {
         Self { lat, lon }
@@ -54,6 +55,7 @@ use std::sync::Arc;
 
 /// State of a tile in the system
 #[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
 pub enum TileState {
     /// Tile is being downloaded
     Loading,
@@ -92,6 +94,7 @@ impl TileData {
     }
 
     /// Get height at grid position (x, y)
+    #[allow(dead_code)]
     pub fn get_height(&self, x: usize, y: usize) -> Option<i16> {
         if x < self.size && y < self.size {
             Some(self.heights[y * self.size + x])

@@ -11,6 +11,7 @@ pub struct TileCache {
     cache_dir: PathBuf,
 }
 
+#[allow(dead_code)]
 impl TileCache {
     /// Create a new tile cache
     pub fn new() -> Self {
@@ -30,10 +31,14 @@ impl TileCache {
 
     /// Get the cache directory path
     fn get_cache_dir() -> PathBuf {
-        // Use local "assets" directory in the project
         let current_dir = std::env::current_dir()
             .expect("Could not determine current directory");
-        current_dir.join("assets")
+        
+        if current_dir.ends_with("assets") {
+            current_dir
+        } else {
+            current_dir.join("assets")
+        }
     }
 
     /// Get the file path for a tile in the cache
@@ -200,6 +205,11 @@ impl TileCache {
             }
         }
         None
+    }
+
+    /// Remove a tile from memory
+    pub fn remove_tile(&mut self, coord: &TileCoord) {
+        self.tiles.remove(coord);
     }
 
     /// Clear all tiles from memory (keeps disk cache)

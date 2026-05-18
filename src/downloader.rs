@@ -11,6 +11,7 @@ pub struct DownloadRequest {
 
 /// Download result
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum DownloadResult {
     Success(TileData),
     Missing(TileCoord),
@@ -20,7 +21,7 @@ pub enum DownloadResult {
 /// Resource managing tile downloads
 #[derive(Resource)]
 pub struct TileDownloader {
-    request_tx: Sender<DownloadRequest>,
+    request_tx: Mutex<Sender<DownloadRequest>>,
     result_rx: Arc<Mutex<Receiver<DownloadResult>>>,
 }
 
@@ -36,14 +37,16 @@ impl TileDownloader {
         });
 
         Self {
-            request_tx,
+            request_tx: Mutex::new(request_tx),
             result_rx: Arc::new(Mutex::new(result_rx)),
         }
     }
 
     /// Request a tile download
     pub fn request_download(&self, coord: TileCoord) {
-        let _ = self.request_tx.send(DownloadRequest { coord });
+        if let Ok(tx) = self.request_tx.lock() {
+            let _ = tx.send(DownloadRequest { coord });
+        }
     }
 
     /// Poll for download results
@@ -59,11 +62,8 @@ impl TileDownloader {
 
     /// Worker thread that processes download requests
     fn download_worker(request_rx: Receiver<DownloadRequest>, result_tx: Sender<DownloadResult>) {
-        // List of SRTM data sources (public mirrors)
-        let sources = vec![
-            "https://srtm.csi.cgiar.org/wp-content/uploads/files/srtm_5x5/TIFF/",
-            // Add more mirrors as needed
-        ];
+        // External downloads are disabled per user request
+        let sources: Vec<&str> = vec![];
 
         while let Ok(request) = request_rx.recv() {
             let result = Self::download_tile(&request.coord, &sources);
@@ -76,7 +76,7 @@ impl TileDownloader {
         // For now, we'll use a simpler approach: try to download from a public source
         // In production, you'd iterate through sources and handle authentication
         
-        let filename = coord.filename();
+        // let filename = coord.filename();
         
         // Try USGS EarthExplorer (note: this may require authentication)
         // For this demo, we'll simulate downloads or use local files
@@ -120,8 +120,9 @@ pub fn process_downloads(
                 cache.insert_tile(tile_data.coord, TileState::Loaded(std::sync::Arc::new(tile_data)));
             }
             DownloadResult::Missing(coord) => {
-                //warn!("Tile not found: {:?}", coord);
-                cache.insert_tile(coord, TileState::Missing);
+                //info!("Tile not found: {:?}. Using empty tile.", coord);
+                let empty_data = crate::tile::TileData::new(coord, 3601);
+                cache.insert_tile(coord, TileState::Loaded(std::sync::Arc::new(empty_data)));
             }
             DownloadResult::Error(coord, err) => {
                 error!("Failed to download tile {:?}: {}", coord, err);
