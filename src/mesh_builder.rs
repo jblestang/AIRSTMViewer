@@ -119,21 +119,24 @@ impl TerrainMeshBuilder {
                 let (x_start, x_end, y_start, y_end) =
                     tile.lod_dem_bin(xi, yi, step, vertices_per_row);
 
-                // Max-sample full-res DEM over each LOD bin so peaks are not lost when step > 1.
-                let height = tile
+                // Max-sample full-res DEM for mesh geometry (peaks not lost at LOD > 1).
+                let mesh_height = tile
                     .max_height_in_region(x_start, y_start, x_end, y_end)
                     .unwrap_or(0) as f32;
 
+                // Radar / target altitude uses ground at bin centre, not max height.
+                // Using max here inflates check_alt on peaks and draws false "ridges" on
+                // coverage boundaries (target is AGL above local ground, not above cell max).
+                let x_center = (x_start + x_end) / 2;
+                let y_center = (y_start + y_end) / 2;
+                let ground_m = tile.height_at_dem_index(x_center, y_center) as f32;
+
                 // Vertex at the SW corner of its DEM bin (integer indices → world, no rounding).
                 let px = x_start as f32 * units_per_dem_index;
-                let py = height * self.height_scale;
+                let py = mesh_height * self.height_scale;
                 let pz = y_start as f32 * units_per_dem_index;
 
                 let position = [px, py, pz];
-
-                // Radar checks at bin center (integer mid-indices, single f64 conversion).
-                let x_center = (x_start + x_end) / 2;
-                let y_center = (y_start + y_end) / 2;
 
                 // Determine color
                 let final_color_rgba;
@@ -144,7 +147,7 @@ impl TerrainMeshBuilder {
                             tile_lon_base + TileData::dem_index_to_lon_frac(x_center, max_coord);
                         let v_lat = tile_lat_base
                             + TileData::dem_index_to_lat_frac(y_center, max_coord);
-                        let check_alt = height as f32 + rds.target_altitude_agl;
+                        let check_alt = ground_m + rds.target_altitude_agl;
                         
                         let mut visible = false;
                         let mut color = None;
@@ -181,11 +184,11 @@ impl TerrainMeshBuilder {
                             final_color_rgba = [1.0, 0.0, 0.0, 0.1];
                         }
                     } else {
-                         let c = colormap.get_color(height).to_srgba();
+                         let c = colormap.get_color(mesh_height).to_srgba();
                          final_color_rgba = [c.red, c.green, c.blue, c.alpha];
                     }
                 } else {
-                    let c = colormap.get_color(height).to_srgba();
+                    let c = colormap.get_color(mesh_height).to_srgba();
                     final_color_rgba = [c.red, c.green, c.blue, c.alpha];
                 }
                 

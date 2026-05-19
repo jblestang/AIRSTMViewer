@@ -299,17 +299,21 @@ impl Radar {
                 current_tile_data  = cache_snapshot.get(&coord).map(|d| d.as_ref());
             }
 
-            if let Some(data) = current_tile_data {
-                let lat_base = coord.lat as f64;
-                let lon_base = coord.lon as f64;
-                let dl = cur_lat - lat_base;
-                let dl2 = cur_lon - lon_base;
-                let ny = (1.0 - dl) as f32;
-                let nx = dl2 as f32;
-                let terrain_h = data.get_height_normalized(nx, ny);
-                if (terrain_h as f64) > ray_h {
-                    return false;
-                }
+            let Some(data) = current_tile_data else {
+                // DEM missing along the ray — do not assume clear LOS (avoids false
+                // visible rings at the edge of loaded tiles / coverage).
+                return false;
+            };
+
+            let lat_base = coord.lat as f64;
+            let lon_base = coord.lon as f64;
+            let dl = cur_lat - lat_base;
+            let dl2 = cur_lon - lon_base;
+            let ny = (1.0 - dl) as f32;
+            let nx = dl2 as f32;
+            let terrain_h = data.get_height_normalized(nx, ny);
+            if (terrain_h as f64) > ray_h {
+                return false;
             }
         }
 

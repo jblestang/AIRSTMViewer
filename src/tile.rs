@@ -240,6 +240,18 @@ impl TileData {
         max_h
     }
 
+    /// Height at a single DEM grid node (void → 0).
+    #[inline]
+    pub fn height_at_dem_index(&self, x: usize, y: usize) -> i16 {
+        let max_idx = self.size.saturating_sub(1);
+        let x = x.min(max_idx);
+        let y = y.min(max_idx);
+        match self.get_height(x, y) {
+            Some(h) if h != SRTM_VOID => h,
+            _ => 0,
+        }
+    }
+
     /// Max height over the non-overlapping DEM bin for a LOD mesh vertex.
     pub fn max_height_for_lod_vertex(
         &self,
