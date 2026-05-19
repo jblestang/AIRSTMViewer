@@ -17,7 +17,7 @@ use crate::tile::{TileCoord, TileState};
 pub struct TerrainTile {
     pub coord: TileCoord,
     pub lod: usize,
-    pub radar_params: (f32, f64, usize),
+    pub coverage_revision: u64,
 }
 
 /// Marker for tiles that need mesh regeneration
@@ -30,7 +30,7 @@ pub struct MeshGenTask {
     pub task: Task<Arc<CachedMeshData>>,
     pub coord: TileCoord,
     pub lod: usize,
-    pub radar_params: (f32, f64, usize),
+    pub coverage_revision: u64,
 }
 
 /// Component for tracking background disk loading tasks
@@ -206,7 +206,7 @@ pub fn mesh_update_system(
     tile_load_tasks: Query<Entity, With<TileLoadTask>>,
     radars: Res<crate::radar::Radars>,
     camera: Single<&Transform, With<Camera>>,
-    mut last_radar_params: Local<Option<(f32, f64, usize)>>,
+    mut last_coverage_revision: Local<Option<u64>>,
     mut last_loaded_tile_count: Local<usize>,
     // Shared material handle — created once, reused every frame to avoid per-tile allocations
     mut shared_material: Local<Option<Handle<StandardMaterial>>>,
@@ -223,8 +223,8 @@ pub fn mesh_update_system(
         })
     }).clone();
 
-    let current_params = (radars.target_altitude_agl, radars.target_rcs, radars.stations.len());
-    let params_changed = last_radar_params.map_or(true, |p| p != current_params);
+    let revision = radars.coverage_revision;
+    let params_changed = last_coverage_revision.map_or(true, |r| r != revision);
 
     // Invalidate when the count of *loaded* tiles increases — a tile that just finished loading
     // may fill a gap that previous raycasts skipped, revealing previously hidden terrain.
@@ -246,7 +246,7 @@ pub fn mesh_update_system(
     let mut cancelled_coords: HashSet<TileCoord> = HashSet::new();
     if params_changed || terrain_changed {
         for (task_entity, task) in task_query.iter() {
-            if task.radar_params != current_params {
+            if task.coverage_revision != revision {
                 commands.entity(task_entity).despawn();
                 cancelled_coords.insert(task.coord);
             }
@@ -255,9 +255,9 @@ pub fn mesh_update_system(
 
     // Build O(1) lookup maps once — avoid O(n²) .find() inside the tile loop.
     // Exclude cancelled coords from pending_task_set so freed slots can be refilled this frame.
-    let existing_tile_map: HashMap<TileCoord, (Entity, usize, (f32, f64, usize), bool)> = tile_query
+    let existing_tile_map: HashMap<TileCoord, (Entity, usize, u64, bool)> = tile_query
         .iter()
-        .map(|(e, t, regen)| (t.coord, (e, t.lod, t.radar_params, regen)))
+        .map(|(e, t, regen)| (t.coord, (e, t.lod, t.coverage_revision, regen)))
         .collect();
     let pending_task_set: HashSet<TileCoord> = task_query
         .iter()
@@ -266,7 +266,7 @@ pub fn mesh_update_system(
         .collect();
 
     if params_changed || terrain_changed {
-        *last_radar_params = Some(current_params);
+        *last_coverage_revision = Some(revision);
         for (entity, ..) in existing_tile_map.values() {
             if let Ok(mut e) = commands.get_entity(*entity) {
                 e.insert(NeedsRegen);
@@ -307,8 +307,8 @@ pub fn mesh_update_system(
 
             let needs_regen = match (existing_tile_map.get(coord), pending_task_set.contains(coord)) {
                 (None, false) => true,
-                (Some((_, tile_lod, tile_params, stale)), false) => {
-                    *stale || *tile_lod != lod_level || *tile_params != current_params
+                (Some((_, tile_lod, tile_rev, stale)), false) => {
+                    *stale || *tile_lod != lod_level || *tile_rev != revision
                 }
                 _ => false,
             };
@@ -363,7 +363,7 @@ pub fn mesh_update_system(
 
     // Pass 1: cache hits — apply all, uncapped
     for (_score, coord, _data_arc, lod_level, distance, _relevant_radars) in &candidates {
-        let cache_key = make_cache_key(*coord, *lod_level, current_params);
+        let cache_key = make_cache_key(*coord, *lod_level, revision);
         if let Some(mesh_handle) = mesh_cache.get(&cache_key) {
             debug!("Mesh cache hit {:?} (lod={}, dist={:.0})", coord, lod_level, distance);
 
@@ -381,7 +381,7 @@ pub fn mesh_update_system(
                     0.0,
                     -((coord.lat + 1) as f32) * tile_size,
                 ),
-                TerrainTile { coord: *coord, lod: *lod_level, radar_params: current_params },
+                TerrainTile { coord: *coord, lod: *lod_level, coverage_revision: revision },
             ));
         }
     }
@@ -402,7 +402,7 @@ pub fn mesh_update_system(
 
     // Pass 2: cache misses — spawn raycasting tasks for all candidates
     for (_score, coord, data_arc, lod_level, distance, relevant_radars) in candidates {
-        let cache_key = make_cache_key(coord, lod_level, current_params);
+        let cache_key = make_cache_key(coord, lod_level, revision);
         if mesh_cache.get(&cache_key).is_some() {
             continue; // already handled in pass 1
         }
@@ -431,7 +431,7 @@ pub fn mesh_update_system(
             ))
         });
 
-        commands.spawn(MeshGenTask { task, coord, lod: lod_level, radar_params: current_params });
+        commands.spawn(MeshGenTask { task, coord, lod: lod_level, coverage_revision: revision });
 
         if let Some((entity, ..)) = existing_tile_map.get(&coord) {
             if let Ok(mut e) = commands.get_entity(*entity) {
@@ -469,7 +469,7 @@ pub fn process_mesh_tasks(
         .map(|(e, t, regen)| (t.coord, (e, regen)))
         .collect();
 
-    let current_params = (radars.target_altitude_agl, radars.target_rcs, radars.stations.len());
+    let revision = radars.coverage_revision;
 
     // Upload all completed tasks every frame for fastest UI response.
     // 256 is effectively uncapped given tile_radius ≤ 7 (max ~225 tiles).
@@ -484,7 +484,7 @@ pub fn process_mesh_tasks(
         // Safety net for the same-frame race: mesh_update_system despawns stale task entities
         // via deferred commands, so they may still appear in this query within the same frame.
         // Discard the result rather than uploading a mesh that will be immediately invalidated.
-        if mesh_task.radar_params != current_params {
+        if mesh_task.coverage_revision != revision {
             commands.entity(task_entity).despawn();
             continue;
         }
@@ -492,11 +492,11 @@ pub fn process_mesh_tasks(
         if let Some(cached) = future::block_on(future::poll_once(&mut mesh_task.task)) {
             let coord        = mesh_task.coord;
             let lod          = mesh_task.lod;
-            let radar_params = mesh_task.radar_params;
+            let cov_revision = mesh_task.coverage_revision;
 
             // Upload mesh once, store the handle so future cache hits pay zero GPU cost
             let mesh_handle = meshes.add(cached.to_mesh());
-            let cache_key   = make_cache_key(coord, lod, radar_params);
+            let cache_key   = make_cache_key(coord, lod, cov_revision);
             mesh_cache.insert(cache_key, mesh_handle.clone());
             uploads += 1;
 
@@ -516,7 +516,7 @@ pub fn process_mesh_tasks(
                 Mesh3d(mesh_handle),
                 MeshMaterial3d(mat_handle.clone()),
                 Transform::from_xyz(x_offset, 0.0, z_offset),
-                TerrainTile { coord, lod, radar_params },
+                TerrainTile { coord, lod, coverage_revision: cov_revision },
             ));
 
             if preserve_regen {
@@ -554,7 +554,7 @@ fn spawn_tile_entity(
     let x_offset = coord.lon as f32 * tile_size;
     let z_offset = -((coord.lat + 1) as f32) * tile_size;
     
-    let radar_params = radars.map(|r| (r.target_altitude_agl, r.target_rcs, r.stations.len())).unwrap_or((0.0, 0.0, 0));
+    let coverage_revision = radars.map(|r| r.coverage_revision).unwrap_or(0);
 
     commands.spawn((
         Mesh3d(meshes.add(mesh)),
@@ -567,7 +567,7 @@ fn spawn_tile_entity(
             ..default()
         })),
         Transform::from_xyz(x_offset, 0.0, z_offset),
-        TerrainTile { coord, lod, radar_params },
+        TerrainTile { coord, lod, coverage_revision },
     ));
 
     info!("Spawned tile entity: {:?}", coord);

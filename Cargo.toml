@@ -5,6 +5,8 @@ edition = "2021"
 
 [dependencies]
 bevy = "0.17"
+bevy_egui = "0.37"
+egui_plot = "0.33"
 reqwest = { version = "0.11", features = ["blocking"] }
 tokio = { version = "1.35", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }

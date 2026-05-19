@@ -67,14 +67,12 @@ impl TerrainMeshBuilder {
         cache_snapshot: Option<&HashMap<TileCoord, Arc<TileData>>>,
         relevant_radars: Option<&[usize]>,
     ) -> CachedMeshData {
-        let step = self.lod_level;
+        let step = self.lod_level.max(1);
         let size = tile.size;
-        
-        // Calculate number of vertices (excluding last row/column)
-        let max_coord = size - 1;
-        
-        // We need to generate vertices up to max_coord inclusive
-        let vertices_per_row = max_coord / step + 1;
+        let max_coord = size.saturating_sub(1);
+        let vertices_per_row = TileData::lod_vertices_per_row(step, size);
+        // World units per DEM index — multiply indices first, then scale (avoids per-vertex float division drift).
+        let units_per_dem_index = (size as f32 / max_coord.max(1) as f32) * self.scale;
         
         let mut positions = Vec::new();
         let mut colors = Vec::new();
@@ -117,26 +115,35 @@ impl TerrainMeshBuilder {
             .map(|i| {
                 let yi = i / vertices_per_row;
                 let xi = i % vertices_per_row;
-                
-                let y = yi * step;
-                let x = xi * step;
-                
-                let height = tile.get_height(x, y).unwrap_or(0) as f32;
-                
-                // Position
-                let px = (x as f32 / max_coord as f32) * (size as f32) * self.scale;
+
+                let (x_start, x_end, y_start, y_end) =
+                    tile.lod_dem_bin(xi, yi, step, vertices_per_row);
+
+                // Max-sample full-res DEM over each LOD bin so peaks are not lost when step > 1.
+                let height = tile
+                    .max_height_in_region(x_start, y_start, x_end, y_end)
+                    .unwrap_or(0) as f32;
+
+                // Vertex at the SW corner of its DEM bin (integer indices → world, no rounding).
+                let px = x_start as f32 * units_per_dem_index;
                 let py = height * self.height_scale;
-                let pz = (y as f32 / max_coord as f32) * (size as f32) * self.scale;
-                
+                let pz = y_start as f32 * units_per_dem_index;
+
                 let position = [px, py, pz];
-                
+
+                // Radar checks at bin center (integer mid-indices, single f64 conversion).
+                let x_center = (x_start + x_end) / 2;
+                let y_center = (y_start + y_end) / 2;
+
                 // Determine color
                 let final_color_rgba;
-                
+
                 if let Some(rds) = radars {
                     if let Some(snap) = cache_snapshot {
-                        let v_lat = (tile_lat_base + 1.0) - (y as f64 / max_coord as f64);
-                        let v_lon = tile_lon_base + (x as f64 / max_coord as f64);
+                        let v_lon =
+                            tile_lon_base + TileData::dem_index_to_lon_frac(x_center, max_coord);
+                        let v_lat = tile_lat_base
+                            + TileData::dem_index_to_lat_frac(y_center, max_coord);
                         let check_alt = height as f32 + rds.target_altitude_agl;
                         
                         let mut visible = false;

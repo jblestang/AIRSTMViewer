@@ -2,12 +2,11 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 use crate::tile::TileCoord;
 
-/// Cache key: (tile coord, lod step, alt_bits, rcs_bits, station_count)
-/// f32/f64 are stored as raw bits to make them Hash + Eq without extra dependencies.
-pub type MeshCacheKey = (TileCoord, usize, u32, u64, usize);
+/// Cache key: (tile coord, lod step, coverage_revision)
+pub type MeshCacheKey = (TileCoord, usize, u64);
 
-pub fn make_cache_key(coord: TileCoord, lod: usize, radar_params: (f32, f64, usize)) -> MeshCacheKey {
-    (coord, lod, radar_params.0.to_bits(), radar_params.1.to_bits(), radar_params.2)
+pub fn make_cache_key(coord: TileCoord, lod: usize, coverage_revision: u64) -> MeshCacheKey {
+    (coord, lod, coverage_revision)
 }
 
 /// Stores `Handle<Mesh>` keyed by (coord, lod, radar_params).
@@ -42,5 +41,9 @@ impl MeshCache {
 
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+
+    pub fn clear(&mut self) {
+        self.entries.clear();
     }
 }

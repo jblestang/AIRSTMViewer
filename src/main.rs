@@ -10,19 +10,26 @@ mod tile;
 mod radar;
 mod ui;
 mod geojson;
+mod radar_panel;
+mod terrain;
+mod radial_profile;
 
 use bevy::prelude::*;
+use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
+        .add_plugins((
+            DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "SRTM 3D Tile Viewer".to_string(),
                 resolution: (1280, 720).into(),
                 ..default()
             }),
             ..default()
-        }))
+        }),
+            EguiPlugin::default(),
+        ))
         .insert_resource(ClearColor(Color::BLACK))
         // Resources
         .init_resource::<cache::TileCache>()
@@ -31,6 +38,9 @@ fn main() {
         .insert_resource(downloader::TileDownloader::new())
         .init_resource::<lod::LodManager>()
         .init_resource::<radar::Radars>()
+        .init_resource::<radar_panel::RadarEditor>()
+        .init_resource::<terrain::CursorTerrain>()
+        .init_resource::<radial_profile::RadialProfileUi>()
         // Startup systems
         .add_systems(Startup, (
             setup_scene,
@@ -50,11 +60,19 @@ fn main() {
                 crate::systems::process_mesh_tasks,
             ).chain(),
             crate::radar::update_radar_position_system,
-            crate::radar::update_radar_settings_system,
-            ui::update_mouse_coordinates_system, 
+            radar_panel::sync_radar_editor_system,
+            radar_panel::radar_panel_keyboard_system,
+            radial_profile::radial_profile_keyboard_system,
+            radial_profile::update_cursor_terrain_system,
+            ui::update_mouse_coordinates_system,
             ui::update_activity_panel,
             // crate::systems::cache_eviction_system, // Reverted
         ))
+        .add_systems(EguiPrimaryContextPass, (
+            radar_panel::setup_egui_style,
+            radar_panel::radar_panel_ui_system,
+            radial_profile::radial_profile_ui_system,
+        ).chain())
         .run();
 }
 
@@ -79,6 +97,7 @@ fn setup_scene(mut commands: Commands) {
     info!("  Arrows: Move Up/Down (Altitude) and Strafe Left/Right");
     info!("  Shift + Arrows: Rotate Camera (Look)");
     info!("  Right-click + drag: Rotate Camera");
-    info!("  Alt + Arrows: Adjust Radar Settings (Up/Down=Alt, Left/Right=RCS)");
+    info!("  U: Toggle radar parameter panel (validate to recalculate coverage)");
+    info!("  V: Toggle radial terrain cross-section (500 km)");
     info!("  Mouse wheel: Zoom / Move Forward");
 }
